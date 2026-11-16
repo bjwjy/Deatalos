@@ -1,10 +1,29 @@
-# Deatalos 液压工作台
+<p align="center">
+  <img src="apps/desktop/resources/icons/deatalos.png" alt="Deatalos app icon / Deatalos 软件图标" width="112">
+</p>
+<h1 align="center">Deatalos · 液压工作台</h1>
+<p align="center">
+  <strong>从一张液压原理图，到可分析的回路和可交付的工程文档。</strong><br>
+  <strong>From hydraulic schematics to circuit analysis and engineering reports.</strong>
+</p>
+<p align="center">
+  <a href="https://github.com/bjwjy/Deatalos/releases"><strong>Windows 安装包发布页 · Windows Releases</strong></a>
+  · <a href="#从源码运行">从源码运行</a>
+  · <a href="#english">English</a>
+</p>
 
-<img src="apps/desktop/resources/icons/deatalos.png" alt="Deatalos 绿色羽翼标志" width="80">
+**当前公开版本为 V1.4（1.4.0-rc.1）源码。** 安装包发布页目前没有公开的 Windows 安装文件。
 
-Deatalos 是一款面向液压教学、回路设计与工程初算的中文 Windows 桌面软件。你可以在一张图上布置元件和油路，检查连接、设定工况，观察受支持回路的动态响应，再把原理图、曲线和计算依据一起带走。
+**V1.4 (1.4.0-rc.1) source is available now.** A public Windows installer is not yet available.
 
-**当前公开版本为 V1.4（1.4.0-rc.1）源码。** 下面的命令用于从源码构建。进阶瞬态仿真另需准备 Hopsan 原生运行环境。
+Deatalos 把原理图绘制、油路诊断、瞬态仿真、工况计算和工程出图放在同一个 Windows 工作台。它面向液压教学、回路设计和工程初算，适合从泵、阀、缸和马达搭起回路，再用曲线和计算结果检查设计。
+
+## 核心能力 · Highlights
+
+- **画图和布线 · Draw and route.** 从元件库搭回路，自动整理元件和线条，调整绘图路径及物理管路参数。 Build circuits from the component library, arrange symbols, route lines, and edit physical pipe parameters.
+- **仿真和读曲线 · Simulate and inspect.** 用 HopsanCore 对受支持回路运行、暂停和单步，读取压力、流量和位移的实际采样点，比较历史记录。 Run or step supported circuits with HopsanCore, inspect recorded pressure, flow, and displacement samples, and compare runs.
+- **多工况计算 · Size across operating cases.** 核算压力、流量和功率，比较多执行器工况下的候选方案，输出计算书或选型任务书。 Estimate pressure, flow, and power, compare options across actuator operating cases, and generate calculation reports or sizing briefs.
+- **工程出图 · Export drawings and results.** 设置纸张方向、标题栏、装订边和模板，导出 PDF、PNG、JPG、可选 SVG，以及曲线、CSV 和 Word 文档。 Configure drawing sheets and title blocks, then export diagrams, curves, CSV data, or Word reports.
 
 ## 能做什么
 
@@ -72,3 +91,29 @@ npm run check:integration
 欢迎通过 [GitHub Issues](https://github.com/bjwjy/Deatalos/issues) 提交问题、功能建议或算例。报告问题时，可以附上使用版本、Windows 版本、复现步骤、预期与实际结果，以及可公开的最小示例。若问题涉及仿真，附上回路拓扑、边界条件、步长和诊断信息会更容易复现。
 
 修改代码时，建议附上相应的测试或算例及检查结果。项目自有源码采用 [Apache License 2.0](LICENSE)。第三方依赖、移植代码及其声明沿各自许可，见[第三方声明](THIRD_PARTY_NOTICES.md)。
+
+## English
+
+**Deatalos is a Windows desktop workbench for hydraulic circuit design, simulation, and preliminary engineering calculations.** It is designed for students, instructors, and engineers who want to work through a circuit from schematic to report. The V1.4 desktop interface is primarily in Chinese.
+
+Build a circuit with pumps, valves, cylinders, motors, and instruments. Inspect connections, initial conditions, and diagnostics. For supported circuits, run, pause, or step a transient simulation, then inspect and compare the recorded curves. Use sizing tools to estimate operating requirements and export the schematic, curve data, or a calculation report.
+
+### Build from source
+
+Install Git, Node.js 24, and npm 11 on Windows x64. The Windows build also uses the .NET Framework 4.x C# compiler for the local tool client.
+
+```powershell
+git clone https://github.com/bjwjy/Deatalos.git
+cd Deatalos
+npm ci
+npm run build
+npm run start:teaching
+```
+
+Use `npm run start:advanced` to open the advanced workbench. Its transient solver requires a local Hopsan environment and the Deatalos native extension. See the [native setup guide](docs/NATIVE.md). Run `npm test` for the public tests. The source snapshot passed the build and 55 tests in an isolated Windows checkout. Rebuilding the native environment from scratch has yet to be independently verified.
+
+### Technology and credits
+
+The desktop application is built with Electron, TypeScript, and SVG. HopsanCore 2.24.4 provides network coupling and time integration. Deatalos supplies the desktop workflow, native bridge, and its own teaching component models. Public FluidSIM component documentation informed parts of the engineering reference. For the model scope and the licenses of Hopsan, fluids, pdf-lib, and other dependencies, see [Third-party notices](THIRD_PARTY_NOTICES.md).
+
+Report a bug or suggest a feature in [GitHub Issues](https://github.com/bjwjy/Deatalos/issues). For simulation issues, include the circuit, boundary conditions, time step, and diagnostics when possible. Project source is available under the [Apache License 2.0](LICENSE).
