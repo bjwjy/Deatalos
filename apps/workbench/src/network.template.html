@@ -1,0 +1,1304 @@
+<!doctype html>
+<html lang="zh-CN" data-ui-theme="white" data-plain-theme>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src data: blob:; connect-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'"
+    />
+    <title>Deatalos</title>
+    <link rel="stylesheet" href="./network-workspace.css" />
+    <link rel="stylesheet" href="./network-buttons.css" />
+    <link rel="stylesheet" href="./network-v13-main.css" />
+    <link rel="stylesheet" href="./network-v13-planet.css" />
+    <link rel="stylesheet" href="./network-v13-top.css" />
+    <link rel="stylesheet" href="./network-v13-press.css" />
+    <link rel="stylesheet" href="./network-v13-run.css" />
+    <link rel="stylesheet" href="./network-v13-save.css" />
+    <link rel="stylesheet" href="./network-v13-dialogs.css" />
+    <link rel="stylesheet" href="./network-teaching-demo.css" />
+    <link rel="stylesheet" href="./network-v13-compat.css" />
+    <link rel="stylesheet" href="./network-v13-shortcuts.css" />
+  </head>
+  <body>
+    <header class="top project-header">
+      <div class="identity">
+        <img class="brand-icon" src="__DEATALOS_ICON__" width="32" height="32" alt="Deatalos" />
+        <strong class="brand">Deatalos</strong><span id="titleLabel" class="project-name">未命名网络</span>
+      </div>
+      <div class="project-actions">
+        <span id="dirty" class="dirty unsaved"></span><button id="showInspector" title="打开右侧状态栏">状态栏</button
+        ><button
+          class="icon-button help-button"
+          data-help="workspace"
+          data-tip="使用帮助"
+          title="查看工作区使用帮助"
+          aria-label="使用帮助"
+        >
+          <span data-ui-icon="help"></span>
+        </button>
+      </div>
+    </header>
+    <main class="main workspace sidebar-reserved" id="workspace">
+      <section class="command-deck" aria-label="主菜单与快捷操作">
+        <nav class="menubar" id="mainMenus" aria-label="主菜单">
+          <button type="button" popovertarget="fileCommands" aria-label="文件菜单">文件</button>
+          <div id="fileCommands" class="menu-popup" popover>
+            <button type="button" data-command="newProject">新建文件夹工程…</button
+            ><button type="button" data-command="openProject">打开工程…</button
+            ><button type="button" data-command="saveProject">保存</button
+            ><button type="button" data-command="saveAs">另存为…</button>
+            <button id="openRecoveryCopies" type="button" data-panel="networkRecovery">恢复副本…</button>
+            <details>
+              <summary>导出</summary>
+              <button type="button" id="openDrawingPdf">原理图…</button
+              ><button type="button" id="exportCsv">归档同源数据 CSV</button
+              ><button type="button" id="exportLearning">归档计算过程 CSV</button>
+              <button type="button" id="exportCsvElsewhere">CSV 导出到其他位置…</button>
+              <button type="button" id="openCurveTools">曲线查看与出图…</button
+              ><button type="button" id="importCurveFile">导入曲线数据文件…</button>
+              <button type="button" id="openCalculationWord">计算书（所选有效结果）…</button>
+            </details>
+          </div>
+          <button type="button" popovertarget="editCommands" aria-label="编辑菜单">编辑</button>
+          <div id="editCommands" class="menu-popup" popover>
+            <button id="copySelected" title="复制所选元件与内部连线（Ctrl+C）">复制</button>
+            <button id="cutSelected" title="复制确认成功后剪切（Ctrl+X）">剪切</button>
+            <button id="pasteSelected" title="在视区中心粘贴，连续粘贴逐次偏移（Ctrl+V）">粘贴</button>
+            <button id="rotateSelected" title="所选元件各自顺时针旋转90°（空格）">旋转90°</button>
+            <button id="connectMode" title="开始连线；依次选择两个油口或节点">连接</button>
+            <button id="cancelConnect" title="取消当前连线手势；不删除已有连线">取消连接</button>
+            <button id="addTextAnnotation" type="button" title="在画布点击放置多行文字">放置文本…</button>
+            <button id="addNode" type="button" title="添加明确连接油口的分支节点">添加分支节点</button
+            ><button id="undo" type="button" title="撤销（Ctrl+Z）">撤销</button
+            ><button id="redo" type="button" title="重做（Ctrl+Y）">重做</button
+            ><button id="deleteSelected" type="button" title="删除选中对象；可撤销">删除选中对象</button
+            ><button type="button" data-panel="routeTools">手动绘图路径…</button>
+          </div>
+          <button type="button" popovertarget="viewCommands" aria-label="视图菜单">视图</button>
+          <div id="viewCommands" class="menu-popup" popover="manual">
+            <button
+              id="statusPanelTrigger"
+              type="button"
+              data-submenu="statusPanelMenu"
+              aria-controls="statusPanelMenu"
+              aria-expanded="false"
+            >
+              状态栏 <span aria-hidden="true">›</span>
+            </button>
+            <button id="libraryMenuTrigger" type="button" aria-controls="componentLibrary" data-keep-menu-open>
+              元件库 <span id="libraryModeValue">滚动</span></button
+            ><button
+              id="displayMenuTrigger"
+              type="button"
+              data-submenu="displaySettingsMenu"
+              aria-controls="displaySettingsMenu"
+              aria-expanded="false"
+            >
+              显示设置 <span aria-hidden="true">›</span></button
+            ><button type="button" data-command="showInspector">显示右侧状态栏</button
+            ><span class="selection-command" data-selection-hint="请先选择元件"
+              ><button id="openProperties" type="button" data-panel="properties" disabled>
+                元件属性与设计初态…
+              </button></span
+            ><span class="selection-command" data-selection-hint="请先选择元件"
+              ><button id="openResultData" type="button" data-panel="resultData" disabled>
+                元件数据与运行状态…
+              </button></span
+            ><button id="openConnectionProperties" type="button" data-panel="properties" hidden>管路属性与参数…</button
+            ><button type="button" data-command="fitAll">适合全图</button
+            ><button id="resetWorkspace" type="button" title="恢复右侧曲线区默认宽度；工程与结果保持">
+              恢复区域尺寸</button
+            ><button type="button" data-panel="networkHelp">符号与压力说明…</button>
+          </div>
+          <button type="button" popovertarget="simulationCommands" aria-label="仿真菜单">仿真</button>
+          <div id="simulationCommands" class="menu-popup" popover>
+            <button type="button" data-command="run">运行</button
+            ><button type="button" data-command="pause">暂停</button
+            ><button type="button" data-command="step">单步</button
+            ><button type="button" data-command="reset">复位</button
+            ><button type="button" data-command="showStep">步长设置…</button>
+          </div>
+          <button type="button" popovertarget="toolCommands" aria-label="工具菜单">工具</button>
+          <div id="toolCommands" class="menu-popup" popover>
+            <button type="button" data-panel="appSettings">设置…</button>
+            <label class="tool-permission"
+              ><input id="allowAiOperations" type="checkbox" role="switch" /> 允许 AI 操作</label
+            >
+            <label class="tool-permission"
+              ><input id="allowAiSimulation" type="checkbox" role="switch" disabled /> 允许本次 AI 仿真控制</label
+            >
+            <details open>
+              <summary>计算</summary>
+              <button type="button" data-panel="sizingTools">基础计算…</button
+              ><button type="button" data-panel="dutyTools">多工况计算…</button>
+            </details>
+            <details>
+              <summary>AI</summary>
+              <button type="button" data-panel="externalTools" data-ai-mode="advanced">本机连接…</button
+              ><button type="button" data-panel="externalTools" data-ai-mode="ordinary">手动建议…</button>
+            </details>
+            <button type="button" data-panel="externalTools" data-ai-mode="advanced">AI 接入与候选…</button
+            ><button type="button" data-panel="diagnostics">诊断与操作记录…</button>
+          </div>
+          <button
+            class="menu-trigger settings-menu"
+            id="openAppSettings"
+            type="button"
+            data-panel="appSettings"
+            aria-haspopup="dialog"
+            aria-controls="appSettings"
+          >
+            设置
+          </button>
+          <button id="openHelpMenu" type="button" popovertarget="helpCommands" aria-label="帮助菜单">帮助</button>
+          <div id="helpCommands" class="menu-popup" popover>
+            <button id="archiveDiagnostics" title="仅归档应用诊断代码与字段；不收集系统日志或凭证">
+              归档本机应用诊断
+            </button>
+            <button data-help="workspace">工作区与元件库</button><button data-help="runtime">运行与连线</button
+            ><button data-help="files">文件与导出</button><button data-help="symbols">符号与压力说明</button
+            ><button data-help="advanced">计算与高级工具</button><button data-help="project">工程信息</button>
+          </div>
+        </nav>
+        <div class="quick-toolbar" role="toolbar" aria-label="绘图与运行常用操作">
+          <div class="toolbar-group">
+            <button class="tool" id="newProject" data-tip="新建文件夹工程" aria-label="新建文件夹工程">
+              <span data-icon="document"></span>
+            </button>
+            <button class="tool" id="openProject" data-tip="打开工程" aria-label="打开工程">
+              <span data-icon="folder"></span>
+            </button>
+            <button class="tool" id="saveProject" data-tip="保存 · Ctrl S" aria-label="保存">
+              <svg class="save-symbol" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <g class="save-idle" stroke="currentColor" stroke-width="1.65" stroke-linejoin="round">
+                  <path d="M4 3h13l4 4v14H3V3Z" />
+                  <path d="M7 3v6h9V3M7 21v-8h10v8" />
+                </g>
+                <g class="save-working">
+                  <circle cx="12" cy="12" r="9" fill="currentColor" opacity=".07" />
+                  <g class="save-spinner" stroke="currentColor" stroke-linecap="round">
+                    <circle cx="12" cy="12" r="7.5" pathLength="100" stroke-width="1.9" stroke-dasharray="32 68" />
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="7.5"
+                      pathLength="100"
+                      stroke-width="1.6"
+                      stroke-dasharray="12 88"
+                      stroke-dashoffset="12"
+                      opacity=".48"
+                    />
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="7.5"
+                      pathLength="100"
+                      stroke-width="1.2"
+                      stroke-dasharray="10 90"
+                      stroke-dashoffset="22"
+                      opacity=".2"
+                    />
+                  </g>
+                </g>
+                <g class="save-confirm action-ack">
+                  <circle class="action-ack-circle" cx="12" cy="12" r="9" />
+                  <path class="action-ack-check" d="m7.7 12.1 2.9 2.9 5.9-6" pathLength="1" />
+                </g>
+              </svg>
+            </button>
+            <button class="tool" id="saveAs" data-tip="另存为" aria-label="另存为">
+              <span data-icon="copy"></span>
+            </button>
+            <button class="tool text-tool" data-command="addTextAnnotation" data-tip="文本标注" aria-label="文本标注">
+              <span data-icon="text"></span>
+            </button>
+          </div>
+          <span class="toolbar-divider" role="separator"></span>
+          <div class="toolbar-group">
+            <button class="tool" data-command="undo" disabled aria-label="撤销" data-tip="撤销">
+              <span data-icon="undo"></span></button
+            ><button class="tool" data-command="redo" disabled aria-label="重做" data-tip="重做">
+              <span data-icon="redo"></span>
+            </button>
+          </div>
+          <span class="toolbar-divider" role="separator"></span>
+          <div class="toolbar-group simulation-tools">
+            <button
+              class="tool primary"
+              id="run"
+              data-running="false"
+              aria-label="运行"
+              data-tip="运行"
+              data-icon-phase="idle"
+              aria-describedby="runIconHint"
+            >
+              <svg class="run-symbol" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <defs>
+                  <mask
+                    id="runFlowMask"
+                    x="0"
+                    y="0"
+                    width="24"
+                    height="24"
+                    maskUnits="userSpaceOnUse"
+                    style="mask-type: alpha"
+                  >
+                    <g class="run-live">
+                      <rect class="run-mask-cover" width="24" height="24" fill="white" />
+                      <g class="run-rotor" stroke="white" fill="none" stroke-linecap="round">
+                        <circle
+                          class="run-flow-arc"
+                          cx="12"
+                          cy="12"
+                          r="7.5"
+                          pathLength="100"
+                          stroke-width="3"
+                          stroke-dasharray="24 76"
+                        />
+                        <circle
+                          cx="12"
+                          cy="12"
+                          r="7.5"
+                          pathLength="100"
+                          stroke-width="2.3"
+                          stroke-dasharray="6 94"
+                          stroke-dashoffset="5"
+                          opacity=".78"
+                        />
+                        <circle
+                          cx="12"
+                          cy="12"
+                          r="7.5"
+                          pathLength="100"
+                          stroke-width="1.8"
+                          stroke-dasharray="6 94"
+                          stroke-dashoffset="10"
+                          opacity=".52"
+                        />
+                        <circle
+                          cx="12"
+                          cy="12"
+                          r="7.5"
+                          pathLength="100"
+                          stroke-width="1.1"
+                          stroke-dasharray="6 94"
+                          stroke-dashoffset="15"
+                          opacity=".26"
+                        />
+                        <circle
+                          cx="12"
+                          cy="12"
+                          r="7.5"
+                          pathLength="100"
+                          stroke-width="1.7"
+                          stroke-dasharray="9 91"
+                          stroke-dashoffset="-50"
+                          opacity=".5"
+                        />
+                      </g>
+                    </g>
+                  </mask>
+                </defs>
+                <g class="run-idle" mask="url(#runFlowMask)">
+                  <path
+                    class="run-morph"
+                    fill="currentColor"
+                    fill-rule="evenodd"
+                    d="M8 5 C8 5 18 11 18 12 C18 13 8 19 8 19 C7 19 7 18 7 17 C7 14 7 6 8 5 Z M10 12 C10 12 10 12 10 12 C10 12 10 12 10 12 C10 12 10 12 10 12 C10 12 10 12 10 12 Z"
+                  />
+                </g>
+                <path
+                  class="run-paused-mark"
+                  d="M10.5 10.2v3.6m3-3.6v3.6"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+            <span class="sr-only" id="runIconHint">运行状态由当前有效仿真结果驱动。</span>
+            <button class="tool" id="pause" aria-label="暂停" data-tip="暂停">
+              <span data-icon="pause"></span>
+            </button>
+            <button class="tool" id="step" aria-label="单步" data-tip="单步">
+              <span data-icon="step"></span>
+            </button>
+            <button class="tool" id="reset" aria-label="复位" data-tip="复位">
+              <span data-icon="reset"></span>
+            </button>
+            <button class="tool" id="recoverRun" aria-label="恢复到最后有效点" data-tip="恢复到最后有效点" hidden>
+              续算
+            </button>
+          </div>
+          <span class="toolbar-divider" role="separator"></span>
+          <div class="toolbar-group">
+            <button
+              class="tool"
+              id="enableAi"
+              aria-pressed="false"
+              aria-label="允许AI操作"
+              data-tip="允许本机AI接入；候选仍需确认"
+            >
+              <svg
+                class="icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.35"
+                aria-hidden="true"
+              >
+                <rect x="4" y="4" width="14" height="14" rx="3" />
+                <path d="M8 1v3m6-3v3M8 18v3m6-3v3M1 8h3m-3 6h3m14-6h3m-3 6h3M7 14l2-6 2 6M8 12h2m3-4v6" />
+                <circle cx="19" cy="19" r="3.5" class="ai-badge ai-status-badge" />
+                <path class="ai-status-mark" transform="translate(3 3)" d="M14 16h4" />
+              </svg>
+            </button>
+            <button
+              class="tool"
+              id="arrangeComponents"
+              aria-label="整理"
+              data-tip="整理元件与连线（含手动线路）；可一次撤销"
+            >
+              <svg
+                class="icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.55"
+                aria-hidden="true"
+              >
+                <rect x="3" y="3" width="6" height="5" rx="1" />
+                <rect x="15" y="3" width="6" height="5" rx="1" />
+                <rect x="9" y="16" width="6" height="5" rx="1" />
+                <path d="M6 8v4h12V8m-6 4v4" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </section>
+      <section class="canvas-area drawing-workspace" id="canvasArea" aria-label="自由绘图工作区">
+        <div class="canvas-stage" id="canvasStage">
+          <div class="canvas-source">
+            <span id="selectionCount" class="sr-only"></span>
+            <p id="routingStatus" role="status"></p>
+          </div>
+          <div class="scroll">
+            <svg
+              class="board"
+              id="board"
+              tabindex="0"
+              viewBox="0 0 1200 800"
+              role="group"
+              aria-label="自由连接回路画布"
+            ></svg>
+          </div>
+          <section
+            id="componentLibrary"
+            class="library-window component-library"
+            role="region"
+            aria-labelledby="libraryTitle"
+          >
+            <div
+              id="libraryDragHandle"
+              class="library-title"
+              tabindex="0"
+              aria-label="拖动元件库；方向键微调位置"
+              title="拖动标题移动元件库；方向键可微调"
+            >
+              <h1 id="libraryTitle">元件库</h1>
+              <span class="grow"></span
+              ><button id="minimizeLibrary" aria-label="最小化元件库" title="最小化 / 展开元件库">−</button
+              ><button id="closeLibrary" aria-label="关闭元件库" title="关闭元件库；从视图菜单可重开">×</button>
+            </div>
+            <div class="library-content">
+              <label class="sr-only" for="librarySearch">搜索元件</label
+              ><input id="librarySearch" type="search" placeholder="搜索名称或类别" autocomplete="off" />
+              <p id="libraryCount" class="muted" role="status" hidden></p>
+              <div id="componentTools"></div>
+              <button data-help="workspace" class="library-help">元件库怎么用？</button>
+            </div>
+            <div class="library-resize" data-library-resize="n" aria-hidden="true"></div>
+            <div class="library-resize" data-library-resize="e" aria-hidden="true"></div>
+            <div class="library-resize" data-library-resize="s" aria-hidden="true"></div>
+            <div class="library-resize" data-library-resize="w" aria-hidden="true"></div>
+            <div class="library-resize" data-library-resize="ne" aria-hidden="true"></div>
+            <div class="library-resize" data-library-resize="nw" aria-hidden="true"></div>
+            <div class="library-resize" data-library-resize="sw" aria-hidden="true"></div>
+            <div
+              class="library-resize"
+              data-library-resize="se"
+              role="button"
+              tabindex="0"
+              aria-label="调整元件库宽高；方向键微调"
+              title="拖动边缘或角落调整元件库大小；方向键可微调"
+            ></div>
+          </section>
+          <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+        </div>
+        <span id="connectHint" class="sr-only" role="status">理想等压，忽略管损。</span>
+        <div id="stepConfig" class="step-popup" popover>
+          <h2>仿真步长</h2>
+          <div class="section" id="stepPanel">
+            <label
+              >原生步长<select id="nativeStep">
+                <option value="auto" selected>自动（按当前元件）</option>
+                <option value="0.0001">100 μs</option>
+                <option value="0.00005">50 μs</option>
+                <option value="0.000025">25 μs</option>
+                <option value="0.0000125">12.5 μs</option>
+                <option value="0.00000625">6.25 μs</option>
+                <option value="0.000003125">3.125 μs</option>
+                <option value="0.0000015625">1.5625 μs</option>
+                <option value="0.00000078125">0.78125 μs</option>
+                <option value="0.000000390625">0.390625 μs</option>
+              </select></label
+            >
+            <p id="stepStatus" class="muted"></p>
+            <label><input id="lowPressurePreview" type="checkbox" /> 低压续算（等效空穴预览）</label>
+            <p class="muted">适用于已支持的单执行元件和共源双支路回路。重新初始化时生效。</p>
+            <button id="reinitializeStep" class="wide">按当前运行设置重新初始化</button>
+            <details>
+              <summary>步长依据与来源</summary>
+              <p id="stepBasisText" class="muted"></p>
+            </details>
+          </div>
+        </div>
+      </section>
+      <div
+        id="inspectorResize"
+        class="region-resize workspace-divider"
+        role="separator"
+        aria-label="调整右侧曲线区域宽度"
+        aria-orientation="vertical"
+        tabindex="0"
+      ></div>
+      <button
+        id="statusDrawerToggle"
+        class="drawer-toggle"
+        data-press-feedback="off"
+        aria-controls="inspector"
+        aria-expanded="true"
+        aria-label="收回状态栏"
+        data-tip="收回状态栏"
+      >
+        <span data-ui-icon="chevron"></span>
+      </button>
+      <div id="statusDrawerShell" class="status-drawer-shell">
+        <aside class="inspector status-sidebar" id="inspector" aria-label="右侧状态栏" tabindex="-1">
+          <button id="closeInspector" class="drawer-close" aria-label="收起状态栏" title="收起状态栏">×</button>
+          <h2 id="inspectorTitle">状态栏</h2>
+          <p id="statusPanelsEmpty" class="muted" hidden>从“视图 → 状态栏”勾选要显示的项目。</p>
+          <div id="statusPanels" class="status-cards"></div>
+          <div id="instanceControls"></div>
+          <div id="shortcutParameters"></div>
+          <div id="shortcutResults"></div>
+          <div id="shortcutSizing"></div>
+          <div id="shortcutAI"></div>
+          <div id="shortcutDiagnostics"></div>
+          <div class="section" id="runStatusPanel">
+            <p id="controllerSummary" aria-live="polite"></p>
+            <p id="runStatus" class="muted">未初始化；编辑或参数更改后需重新初始化。</p>
+          </div>
+          <div id="properties" class="section"></div>
+
+          <details class="section" id="layoutTools"></details>
+          <section id="externalTools"></section>
+          <details class="section" id="routeTools">
+            <summary>高级：手动绘图路径</summary>
+            <button id="manualRoute">编辑线段 / 折点</button><button id="autoRoute">恢复自动</button
+            ><button id="removeBend">移除选中折点</button><button id="mergeRoute">合并近共线线段</button>
+            <p class="muted">
+              选择管路后可直接拖动方形中点：水平段上下移，竖直段左右移，松手保存，Esc取消。需要编辑折点时点击“编辑线段 /
+              折点”，双击线段插入锚点；“恢复自动”撤去手动路径。编辑完成会自动整理同一连接内2绘图单位以内的微小折线，也可点“合并近共线线段”整理已有手动路径；明显折点、真实端点及障碍约束保持，可一次撤销。端点始终跟随真实油口，仅改变绘图。连接时点画布空白可取消起点，拖动平移/框选不当作空白点击。
+            </p>
+          </details>
+          <div class="section" id="connectionReadout" hidden>
+            <h2>管路压力与流量</h2>
+            <p id="connectionResults">选中管路可读取两端压力与有符号流量。</p>
+          </div>
+          <div class="section" id="resultData">
+            <p id="selectedState" class="muted"></p>
+            <h2 id="resultHeading">元件数据 · 当前捕获</h2>
+            <label
+              >数据范围<select id="resultScope">
+                <option value="selected">所选对象</option>
+                <option value="all">全图数据</option>
+              </select></label
+            >
+            <details>
+              <summary>来源与模型技术详情</summary>
+              <p id="identity" class="muted">没有有效结果</p>
+            </details>
+            <div id="results"></div>
+          </div>
+          <div id="exportPanel">
+            <div class="status-export-actions">
+              <button type="button" data-status-export-action data-command="openDrawingPdf">原理图…</button
+              ><button type="button" data-status-export-action data-command="exportCsv">导出同源数据CSV</button
+              ><button type="button" data-status-export-action data-command="exportLearning">导出计算过程CSV</button
+              ><button type="button" data-status-export-action data-command="openCalculationWord">导出计算书</button
+              ><button type="button" data-status-export-action data-command="openCurveTools">曲线数据与出图…</button>
+            </div>
+            <p id="exportStatus" role="status"></p>
+          </div>
+          <div id="sidebarCurve" class="section">
+            <label>预览量值<select id="curveQuantity"></select></label
+            ><button id="refreshCurvePreview" type="button">读取 / 刷新</button
+            ><button id="curveExportSettings" type="button">出图设置…</button>
+            <p id="curveStatus" class="curve-note" role="status">运行后读取曲线，也可从文件菜单导入曲线数据。</p>
+            <div id="curve" aria-label="右侧曲线预览"></div>
+          </div>
+          <div id="diagnostics" class="section"></div>
+        </aside>
+      </div>
+    </main>
+    <div id="statusPanelMenu" class="submenu-popup status-panel-menu" popover="manual" aria-label="状态栏显示项目">
+      <p class="muted">勾选后显示在右侧</p>
+      <div id="statusPanelChoices"></div>
+      <div class="status-panel-actions">
+        <button id="statusShowAll" type="button">全部显示</button
+        ><button id="statusHideAll" type="button">全部收起</button
+        ><button id="statusRestoreDefault" type="button">恢复默认</button>
+      </div>
+    </div>
+    <div id="statusPanelParking" hidden></div>
+    <div id="displaySettingsMenu" class="submenu-popup" popover="manual">
+      <button id="openPressureSettings" type="button" data-panel="pressureSettings">压力颜色分级…</button>
+    </div>
+    <dialog id="aiCandidateHistory" aria-labelledby="aiCandidateHistoryTitle">
+      <div class="dialog-head">
+        <h2 id="aiCandidateHistoryTitle">AI 候选历史与收藏</h2>
+        <button type="button" id="closeAiCandidateHistory" aria-label="关闭">关闭</button>
+      </div>
+      <div class="dialog-body" id="aiCandidateHistoryBody"></div>
+      <div class="dialog-foot" id="aiCandidateHistoryActions"></div>
+    </dialog>
+    <dialog id="formalExport" class="formal-dialog" aria-labelledby="formal-title">
+      <div class="dialog-head">
+        <h2 id="formal-title">图框与计算书导出</h2>
+        <button id="formal-close" aria-label="关闭正式导出">×</button>
+      </div>
+      <div class="dialog-body section">
+        <p id="formal-source" class="curve-note"></p>
+        <fieldset id="formal-inputs">
+          <label
+            >导出格式<select id="formal-format">
+              <option value="pdf">PDF 原理图</option>
+              <option value="svg">SVG 原理图图片</option>
+            </select></label
+          >
+          <label id="formal-formula-control" hidden
+            >Word公式表现<select id="formal-formula">
+              <option value="native">排版公式（可编辑）</option>
+              <option value="latex">LaTeX源码（直接写在Word中）</option>
+            </select></label
+          >
+          <label id="formal-name-control" hidden
+            >文件名<input id="formal-name" maxlength="120" value="液压计算书"
+          /></label>
+          <div id="formal-paper-controls" class="formal-grid">
+            <div id="drawingLabelsPanel">
+              <label
+                >图中名称<select id="svgLabels">
+                  <option value="all">标注全部元件名称</option>
+                  <option value="none">隐藏全部元件名称</option>
+                </select></label
+              >
+            </div>
+            <label
+              >纸张<select id="formal-paper">
+                <option value="A4">A4 · 210 × 297 mm</option>
+                <option value="A3" selected>A3 · 297 × 420 mm</option>
+                <option value="A2">A2 · 420 × 594 mm</option>
+              </select></label
+            >
+            <label
+              >方向<select id="formal-orientation">
+                <option value="landscape">横向</option>
+                <option value="portrait">竖向</option>
+              </select></label
+            >
+            <label
+              >装订边<select id="formal-binding">
+                <option value="yes">保留装订边</option>
+                <option value="no">不留装订边</option>
+              </select></label
+            >
+            <label
+              >图形占比<select id="formal-occupancy">
+                <option value="1">适合图框</option>
+                <option value="0.8">80%</option>
+                <option value="0.6">60%</option>
+              </select></label
+            >
+          </div>
+          <p id="formal-fields-note" class="muted">
+            标题栏180 × 56 mm；默认保留原模板，可自定义字段。模板只保存字段设置，本图内容不随模板复用。
+          </p>
+          <details id="formal-template-panel">
+            <summary>自定义图框与模板</summary>
+            <label
+              >已存模板<select id="formal-template-choice">
+                <option value="">原180 × 56模板</option>
+              </select></label
+            >
+            <label>模板名称<input id="formal-template-name" maxlength="60" value="自定义图框" /></label>
+            <div class="formal-template-actions">
+              <button id="formal-template-edit" type="button">自定义字段</button>
+              <button id="formal-template-add" type="button">增加字段</button>
+              <button id="formal-template-save" type="button">保存命名模板</button>
+            </div>
+            <p id="formal-template-status" role="status"></p>
+            <div id="formal-template-fields"></div>
+            <p class="muted">
+              最多显示24个字段；可改名、隐藏和排序。自定义表格替代原更改/签署格线，本机命名模板可跨工程复用。
+            </p>
+          </details>
+          <div id="formal-fields"></div>
+          <button id="formal-prepare" type="button">预览与检查</button>
+        </fieldset>
+        <p id="formal-status" role="status" aria-live="polite"></p>
+        <div id="formal-preview"></div>
+        <label
+          >保存位置<select id="formal-destination">
+            <option value="project">归档到工程（未保存时选择文件）</option>
+            <option value="external">选择文件位置…</option>
+          </select></label
+        >
+        <button id="formal-save">保存导出文件</button>
+        <details id="formal-drawing-help">
+          <summary>图框、填写与计算书说明</summary>
+          <p>
+            纸张按GB/T
+            14689—2008设置图框，装订边可选，标题栏按本次指定模板重绘。原理图使用工程初始阀位。适合图框调整的是图形在纸上的占比。内容过长会提示缩短，投影区可留空。
+          </p>
+          <p>
+            本次填写随导出来源归档，不自动改写工程。原理图归档到图纸目录，计算书Word/PDF归档到计算书目录。Word可选排版公式或文档内LaTeX源码文本，PDF计算书按公式、代入和结果排版。完整输入、假设和来源与原计算记录一致。保存取消后保留填写，关闭后清空。源和成品均受4MB限制。
+          </p>
+        </details>
+      </div>
+    </dialog>
+    <dialog id="formal-title-editor" class="v13-dialog" aria-labelledby="formal-title-editor-heading">
+      <div class="dialog-head">
+        <h2 id="formal-title-editor-heading">放大标题栏填写</h2>
+        <button id="formal-title-done" type="button">完成</button>
+      </div>
+      <div class="dialog-body"><div id="formal-title-grid"></div></div>
+    </dialog>
+    <dialog id="curveTools" class="curve-tools-dialog" aria-labelledby="curveToolsTitle">
+      <div class="dialog-head">
+        <h2 id="curveToolsTitle">曲线查看与出图</h2>
+        <button id="curve-close" aria-label="关闭曲线窗口">×</button>
+      </div>
+      <div class="dialog-body section">
+        <div class="curve-top-actions" id="recordSourcePanel">
+          <label
+            >运行来源<select id="exportHistory">
+              <option value="current">当前运行</option>
+            </select></label
+          ><button id="refreshCurve">读取当前 / 历史记录</button><button id="curve-import">导入曲线数据文件</button
+          ><input id="curve-file" type="file" accept=".hydcurve,.json" hidden />
+        </div>
+        <p id="curve-source" class="curve-note">读取运行记录，或导入已有数据文件，无需重跑仿真。</p>
+        <details>
+          <summary>来源详情</summary>
+          <p id="curve-source-details" class="curve-note"></p>
+        </details>
+        <fieldset id="curve-settings" class="curve-settings">
+          <label>量值 / 曲线<select id="curve-quantity"></select></label
+          ><label>图表标题<input id="curve-title" maxlength="160" /></label>
+          <label
+            >纸张<select id="curve-paper">
+              <option value="A4">A4 横向</option>
+              <option value="A3">A3 横向</option>
+              <option value="A2">A2 横向</option>
+            </select></label
+          ><label class="curve-check"><input id="curve-explanation" type="checkbox" />打印解释性文字</label>
+          <label>起始时间 s<input id="curve-from" type="number" step="any" /></label
+          ><label>结束时间 s<input id="curve-to" type="number" step="any" /></label>
+          <details class="curve-advanced">
+            <summary>精简与数据范围</summary>
+            <div class="curve-settings">
+              <label>最多输出点数<input id="curve-maximum" type="number" min="2" max="2000" /></label
+              ><label>误差上限（量程%）<input id="curve-tolerance" type="number" min="0" max="100" step="any" /></label
+              ><label>每份CSV点数<input id="curve-perFile" type="number" min="2" max="2000" /></label
+              ><label
+                >CSV / 数据文件范围<select id="curve-scope">
+                  <option value="curve">当前所选曲线</option>
+                  <option value="all">全部量值 / 文件内全部曲线</option>
+                </select></label
+              >
+            </div>
+          </details>
+        </fieldset>
+        <div class="curve-primary-actions">
+          <button id="curve-apply">立即刷新图表</button><button id="curve-savePdf" disabled>导出 PDF 图</button
+          ><button id="curve-saveSvg" disabled>导出 SVG 图</button
+          ><button id="curve-saveCsv" disabled>导出 CSV 数据</button
+          ><button id="curve-saveData" disabled>保存曲线数据文件</button>
+        </div>
+        <p id="curve-toolsStatus" role="status" aria-live="polite"></p>
+        <div id="curveCompareControls" class="shortcut-curve-sources">
+          <label>运行来源<select id="curve-sourceChoice"></select></label>
+          <label>叠加对比<select id="curve-comparisonChoice"></select></label>
+          <label>量值<select id="curve-quickQuantity"></select></label>
+        </div>
+        <div id="curveCompareLegend" class="shortcut-curve-legend"></div>
+        <div class="curve-scope-toolbar">
+          <button id="curve-fit" type="button" class="dialog-button" disabled>适合全部</button>
+          <span id="curve-scope-range"></span>
+          <button id="curve-scopeCsv" type="button" class="dialog-button" disabled>导出精简 CSV</button>
+        </div>
+        <div id="curveInspectionReadout" class="shortcut-curve-readout"></div>
+        <div id="curve-frame">
+          <div id="curve-preview" aria-label="曲线预览"></div>
+          <div id="curve-hover" role="status" hidden></div>
+        </div>
+        <p class="curve-note">
+          设置修改后自动更新图表；此窗口仍使用读取时冻结的数据，导出保存当前已完成的图表设置。
+          移到真实采样点附近查看读数，点击固定标注，再点同一点取消。图中原点为真实零点，不把首个样本连到虚构的零时刻。
+        </p>
+        <div id="curve-keys"></div>
+        <details>
+          <summary>精确读点与保存位置</summary>
+          <div class="curve-pick">
+            <label>实际采样点<select id="curve-point"></select></label
+            ><button id="curve-addKey">固定 / 取消此点</button>
+          </div>
+          <div class="curve-save" id="curve-destination-home">
+            <label id="curve-destination-field"
+              >保存位置<select id="curve-destination">
+                <option value="project">归档到工程（未保存时选择文件）</option>
+                <option value="external">选择文件位置…</option>
+              </select></label
+            >
+          </div>
+        </details>
+        <details>
+          <summary>数据与精简说明</summary>
+          <p>
+            PDF /
+            SVG与预览使用同一图表设置，只打印固定标注，不打印悬停气泡。CSV保留实际数值与SI来源。曲线数据文件保存所选范围内已有的完整保留样本，导入后可选曲线、时间范围、标注及导出格式，不需要重跑仿真；不会恢复已丢弃数据或修改工程。每文件4MB、最多64条曲线/每条2000点；超出时可选单条或缩小范围。精简仍保护极值、未知边界、控制变化与固定点，不降低求解精度。
+          </p>
+        </details>
+      </div>
+    </dialog>
+    <dialog id="sizingTools" class="calculation-dialog" aria-labelledby="sizingTitle">
+      <div class="dialog-head">
+        <h2 id="sizingTitle">基础计算</h2>
+        <button id="close-sizingTools" aria-label="关闭基础计算">×</button>
+      </div>
+      <div id="sizingForm" class="dialog-body section"></div>
+    </dialog>
+    <dialog id="dutyTools" class="calculation-dialog" aria-labelledby="dutyTitle">
+      <div class="dialog-head">
+        <h2 id="dutyTitle">多工况需求计算</h2>
+        <button id="close-dutyTools" aria-label="关闭多工况计算">×</button>
+      </div>
+      <div id="dutyForm" class="dialog-body section"></div>
+    </dialog>
+    <dialog id="controllerDialog" class="calculation-dialog" aria-labelledby="controllerTitle">
+      <div class="dialog-head">
+        <strong id="controllerTitle">动态控制器</strong><button id="closeController">关闭</button>
+      </div>
+      <div class="dialog-body section">
+        <p>每个控制器对应一个元件，可添加多条动作。多个控制器共用仿真时钟，各自动作。</p>
+        <div id="controllerForm"></div>
+        <p id="controllerMessage" role="status"></p>
+        <div class="toolbar controller-commands">
+          <button id="saveController">保存配置</button><button id="stopControllers">停止自动控制</button>
+        </div>
+        <div id="controllerRuntime" aria-live="polite"></div>
+        <p>暂停、停止、完成或故障均保持最后已确认阀位并停止仿真推进；人工操作阀位或单步会结束自动控制。</p>
+      </div>
+    </dialog>
+    <dialog id="probeDialog" aria-labelledby="probeTitle">
+      <div class="dialog-head"><strong id="probeTitle">压力表配置</strong><button id="closeProbe">关闭</button></div>
+      <div class="dialog-body section">
+        <label
+          >名称
+          <span><span id="probePrefix"></span><input id="probeName" maxlength="60" aria-label="压力表名称" /></span
+        ></label>
+        <p>压力表独立命名，所有动态控制器均可引用其读数。</p>
+        <label
+          >测量位置
+          <select id="probeNode"></select
+        ></label>
+        <p>
+          读数与控制条件共用测点的当前有效压力。表盘范围为 0～10 MPa，数字显示实际值。
+          也可在画布上先点压力表测压口，再点液压油口或分支节点。
+        </p>
+        <button id="saveProbe">保存压力表配置</button><button id="deleteProbe">删除压力表</button>
+      </div>
+    </dialog>
+    <dialog id="appSettings" aria-labelledby="appSettingsTitle">
+      <div class="dialog-head">
+        <h2 id="appSettingsTitle">设置</h2>
+        <button id="closeAppSettings" type="button" aria-label="关闭设置">×</button>
+      </div>
+      <div class="dialog-body app-settings-body">
+        <div id="appSettingsTabs">
+          <div id="appAppearanceSettings" class="app-settings-pane">
+            <section class="app-settings-section" aria-labelledby="appAppearanceTitle">
+              <h3 id="appAppearanceTitle">外观</h3>
+              <label>主题配色<select id="appTheme"></select></label>
+              <button type="button" data-panel="pressureSettings">压力颜色分级…</button>
+            </section>
+          </div>
+          <div id="appCanvasSettings" class="app-settings-pane">
+            <section class="app-settings-section">
+              <h3>画布标签</h3>
+              <div class="app-export-formats">
+                <label
+                  >元件名称<select id="appComponentNames">
+                    <option value="selected">仅显示选中元件</option>
+                    <option value="always">始终显示</option>
+                    <option value="hidden">隐藏</option>
+                  </select></label
+                >
+                <label
+                  >油口标签<select id="appPortLabels">
+                    <option value="always">始终显示</option>
+                    <option value="selected">仅显示选中元件</option>
+                    <option value="hidden">隐藏</option>
+                  </select></label
+                >
+              </div>
+              <p class="dialog-note">此处调整工作画布上的文字。连接点仍可操作，原理图可另设显示方式。</p>
+            </section>
+            <section class="app-settings-section" aria-labelledby="appConnectionTitle">
+              <h3 id="appConnectionTitle">画布与连线</h3>
+              <label
+                >分支节点显示半径
+                <output id="branchRevealRadiusValue" for="branchRevealRadius"></output>
+                <input id="branchRevealRadius" type="range" step="1" aria-describedby="branchRevealRadiusHint" />
+              </label>
+              <div id="branchRadiusPreview" popover="manual" aria-hidden="true"></div>
+              <p class="dialog-note" id="branchRevealRadiusHint">
+                调节时在鼠标处预览范围。连线时仅显示范围内的分支节点。
+              </p>
+              <div class="app-connection-setting">
+                <label
+                  >连线吸附半径
+                  <output id="connectionRadiusValue" for="connectionRadius"></output>
+                  <input id="connectionRadius" type="range" step="1" aria-describedby="connectionRadiusHint" />
+                </label>
+                <div class="app-snap-demo">
+                  <svg id="connectionRadiusPreview" viewBox="0 0 120 76" data-snap-state="idle" aria-hidden="true">
+                    <circle data-snap-range cx="65" cy="38" r="12"></circle>
+                    <line data-snap-line x1="14" y1="61" x2="65" y2="38"></line>
+                    <circle data-snap-origin cx="14" cy="61" r="3"></circle>
+                    <circle data-snap-node cx="65" cy="38" r="4"></circle>
+                  </svg>
+                  <span id="connectionPreviewStatus" role="status">移近试吸附</span>
+                </div>
+              </div>
+              <p class="dialog-note" id="connectionRadiusHint">把鼠标移到右侧试连，靠近节点时试线会吸附。</p>
+              <button id="resetConnectionRadius" type="button">恢复默认范围</button>
+            </section>
+            <p id="appSettingsStatus" class="dialog-note" role="status"></p>
+          </div>
+          <section id="appCurveSettings" class="app-settings-section">
+            <h3>默认查看范围</h3>
+            <label
+              >打开曲线时<select id="appCurveRange">
+                <option value="all">适合全部</option>
+                <option value="1">最近 1 秒</option>
+                <option value="5">最近 5 秒</option>
+                <option value="10">最近 10 秒</option>
+                <option value="30">最近 30 秒</option>
+                <option value="60">最近 60 秒</option>
+              </select></label
+            >
+            <p class="dialog-note">以记录的最后时刻为准。可随时平移、缩放或点击「适合全部」查看整段。</p>
+            <p id="appCurveStatus" class="dialog-note" role="status"></p>
+          </section>
+          <div id="appExportSettings" class="app-settings-pane">
+            <section class="app-settings-section" aria-labelledby="appExportTitle">
+              <h3 id="appExportTitle">导出默认值</h3>
+              <div class="app-export-formats">
+                <label
+                  >原理图默认格式<select id="appDrawingFormat">
+                    <option value="pdf">PDF</option>
+                    <option value="png">PNG</option>
+                    <option value="jpg">JPG</option>
+                    <option value="svg">SVG</option>
+                  </select></label
+                >
+                <label
+                  >曲线<select id="appCurveFormat">
+                    <option value="pdf">PDF 图</option>
+                    <option value="svg">SVG 图</option>
+                    <option value="csv">CSV 数据</option>
+                    <option value="hydcurve">曲线数据文件</option>
+                  </select></label
+                >
+                <label
+                  >计算书<select id="appBookFormat">
+                    <option value="docx">Word</option>
+                    <option value="pdf">PDF</option>
+                  </select></label
+                >
+                <label
+                  >选型检索任务书<select id="appCatalogFormat">
+                    <option value="docx">Word</option>
+                    <option value="md">Markdown</option>
+                  </select></label
+                >
+              </div>
+              <div class="app-export-directory">
+                <h4>默认保存目录</h4>
+                <p id="appExportDirectory"></p>
+                <button id="chooseExportDirectory" type="button">选择目录…</button>
+                <button id="clearExportDirectory" type="button">恢复工程归档</button>
+              </div>
+              <p class="dialog-note">每次导出仍可临时改格式、文件名和保存位置。</p>
+            </section>
+            <section class="app-settings-section">
+              <h3>原理图纸张与图框</h3>
+              <fieldset id="appDrawingFormats" class="app-export-formats">
+                <legend>原理图可用格式</legend>
+                <label><input type="checkbox" value="pdf" /> PDF</label>
+                <label><input type="checkbox" value="png" /> PNG</label>
+                <label><input type="checkbox" value="jpg" /> JPG</label>
+                <label><input type="checkbox" value="svg" /> SVG</label>
+              </fieldset>
+              <div class="app-export-formats">
+                <label
+                  >默认纸张<select id="appDrawingPaper">
+                    <option value="A4">A4</option>
+                    <option value="A3">A3</option>
+                    <option value="A2">A2</option>
+                  </select></label
+                >
+                <label
+                  >默认方向<select id="appDrawingOrientation">
+                    <option value="landscape">横向</option>
+                    <option value="portrait">竖向</option>
+                  </select></label
+                >
+              </div>
+              <label>默认图框模板<select id="appDrawingTemplate"></select></label>
+              <p class="dialog-note">在原理图导出中保存的命名模板会出现在这里。每次出图仍可临时更换。</p>
+              <p id="appDrawingTemplateStatus" class="dialog-note" role="status"></p>
+            </section>
+            <p id="appExportStatus" class="dialog-note" role="status"></p>
+          </div>
+          <section id="appRecoverySettings" class="app-settings-section">
+            <h3>自动恢复副本</h3>
+            <div class="app-export-formats">
+              <label
+                >写入间隔<select id="appRecoveryInterval">
+                  <option value="0">关闭自动写入</option>
+                  <option value="30">30 秒</option>
+                  <option value="60">1 分钟</option>
+                  <option value="120">2 分钟</option>
+                  <option value="300">5 分钟</option>
+                  <option value="600">10 分钟</option>
+                </select></label
+              >
+              <label
+                >本机保留份数<select id="appRecoveryCount">
+                  <option value="3">最近 3 份</option>
+                  <option value="5">最近 5 份</option>
+                  <option value="10">最近 10 份</option>
+                  <option value="20">最近 20 份</option>
+                </select></label
+              >
+            </div>
+            <p class="dialog-note">
+              只为有未保存修改的工程写入副本。保留份数由本机所有工程共享，超过上限时轮换最早的副本。
+            </p>
+            <p class="dialog-note">从「文件 → 恢复副本」打开。恢复内容包含设计与布局，恢复后可另存为新工程。</p>
+            <p id="appRecoveryStatus" class="dialog-note" role="status"></p>
+          </section>
+        </div>
+      </div>
+    </dialog>
+    <dialog id="networkRecovery" aria-labelledby="networkRecoveryTitle">
+      <div class="dialog-head">
+        <h2 id="networkRecoveryTitle">恢复副本</h2>
+        <button id="closeRecoveryCopies" type="button" aria-label="关闭恢复副本">×</button>
+      </div>
+      <div class="dialog-body section">
+        <p class="dialog-note">打开后可检查设计与布局，再另存为新工程。</p>
+        <label>选择副本<select id="recoveryCopyChoice" size="5"></select></label>
+        <p id="recoveryCopyStatus" role="status"></p>
+        <button id="restoreRecoveryCopy" type="button" disabled>打开所选副本</button>
+      </div>
+    </dialog>
+    <dialog id="pressureSettings" aria-labelledby="pressureSettingsTitle">
+      <div class="dialog-head">
+        <h2 id="pressureSettingsTitle">压力颜色分级</h2>
+        <button id="closePressureSettings" aria-label="关闭压力颜色设置">×</button>
+      </div>
+      <div class="dialog-body section" id="pressurePanel">
+        <label
+          >档数<select id="pressureBandCount">
+            <option value="2">两档</option>
+            <option value="3">三档</option>
+            <option value="4">四档</option>
+          </select></label
+        >
+        <div id="pressureBoundaries"></div>
+        <div id="pressureColors" class="pressure-colors">
+          <div class="pressure-grade-row">
+            <label for="pressure-color-negative">负压</label
+            ><input id="pressure-color-negative" data-pressure-color="negative" type="color" aria-label="负压颜色" />
+          </div>
+          <div class="pressure-grade-row">
+            <label for="pressure-color-unknown">未知</label
+            ><input id="pressure-color-unknown" data-pressure-color="unknown" type="color" aria-label="未知颜色" />
+          </div>
+          <div class="pressure-grade-row">
+            <label for="pressure-color-error">错误隔离</label
+            ><input id="pressure-color-error" data-pressure-color="error" type="color" aria-label="错误隔离颜色" />
+          </div>
+        </div>
+        <p class="muted">
+          各档按下限分级，达到下限归入该档；低压档固定从0开始。只保存到本机，不改变工程、压力读数或计算。
+        </p>
+        <p id="pressureSettingsStatus" role="status"></p>
+        <details>
+          <summary>当前已应用分级</summary>
+          <p id="pressureApplied" class="muted"></p>
+        </details>
+        <div class="pressure-actions">
+          <button id="resetPressureBands" type="button">恢复默认颜色</button
+          ><button id="applyPressureBands" type="button">确认</button>
+        </div>
+      </div>
+    </dialog>
+    <dialog id="helpDialog" aria-labelledby="helpTitle">
+      <div class="dialog-head">
+        <h2 id="helpTitle">使用帮助</h2>
+        <button id="closeHelp" aria-label="关闭帮助">×</button>
+      </div>
+      <div class="help-tabs" aria-label="帮助主题">
+        <button data-help="workspace">工作区</button><button data-help="runtime">运行与连线</button
+        ><button data-help="files">文件与导出</button><button data-help="symbols">符号与压力</button
+        ><button data-help="advanced">高级工具</button><button data-help="project">工程信息</button>
+      </div>
+      <div class="dialog-body">
+        <section data-help-section="workspace">
+          <p>
+            “视图 →
+            状态栏”可勾选右侧显示项目，支持全部显示、全部收起及恢复默认，并记住本机选择。原菜单窗口仍可打开同一面板，关闭后回到勾选的右侧位置；未应用输入保留。可拖动弹窗标题栏调整位置。
+          </p>
+          <h3>元件库与区域调整</h3>
+          <p>
+            元件库浮在画布内。按中文名称或类别搜索。“视图 → 元件库”右侧显示当前模式，点击该行切换阵列或滚动。
+            默认使用滚动版，卡片显示元件简图和名称；一次展开一个类别：滚轮、左右键或两侧箭头循环切换，点中央卡片添加，点侧卡片先选中；滚轮仅在卡片区域切换，不改变画布缩放。阵列使用同一套已确认简图，悬停可看全名；点击添加，或把元件拖到画布释放处放置；Esc或画布外释放取消。画布和导出继续使用工程符号。
+          </p>
+          <p>
+            元件库默认窄长，拖动四边或四角可拉宽、拉窄、拉长、缩短；右下角获焦后方向键可调宽高，Shift加速，尺寸和位置记在本机。拖动元件库标题移动；“−”最小化，再点可展开；“×”关闭。从“视图
+            →
+            元件库”切换并恢复。关闭库不会删除任何工程元件。小画布点击卡片后自动最小化库，方便查看；点标题“□”展开。标题获焦时方向键也可移动。
+          </p>
+          <p>
+            拖动画布与属性结果区之间的细分隔条连续调整区域；分隔条获焦后方向键可调宽，双击恢复默认。位置和区域尺寸仅保存在本机，不改工程参数或仿真结果。窄窗口从右上“属性与结果”打开面板，再点“×”收起。
+          </p>
+          <p>
+            画布左→右拖框（蓝色）完全包围元件以选择，右→左拖框（橙色）与线相交即选线；两种方向分别只选对应类型，Shift可追加同类选择。选线后Delete或“编辑→删除”批量删除。Esc取消手势/连接并清除选择。选中元件后空格顺时针旋转90°，多选绕各自中心；Ctrl+C/X复制/剪切元件、节点与内部连线，外部连线不带并提示。Ctrl+V在当前视区中心粘贴，连续粘贴偏移24绘图单位。文字输入框内保留原生快捷键；Enter仍可操作获焦阀位。滚轮缩放，中键平移；右下角“适合全图”或Home显示完整回路。主界面不显示缩放百分比。常用操作在菜单下方，低频操作在多级菜单，鼠标移到顶部菜单文字即展开，点击和键盘操作也保留。按钮悬停高亮、按下有轻微按压反馈；悬停可看短说明，持续运行时运行图标变为跳动短柱和环形流光，暂停、复位或失效后停止；系统“减少动态效果”保留静态运行标记并关闭位移动画；元件库最小化/关闭按钮悬停变色，点击才执行。
+          </p>
+          <p>右下角矩形气泡是暂时操作反馈；详细故障仍在“工具 → 诊断与操作记录”，不会因气泡消失而清除。</p>
+        </section>
+        <section data-help-section="runtime" hidden>
+          <p>
+            在画布直接点击阀位控制，双击节流阀可设置当前运行开口。双击管道显示压力与流量，点击空白收起；手动路径编辑模式保留双击线段加锚点。
+          </p>
+          <h3>运行、暂停与新连线</h3>
+          <p>
+            点击油口选择起点，再点击目标油口连接；也可按住油口片刻，拖到目标油口后松开。选中起点显示橙色脉冲环，吸附到的目标显示绿色环；完成或取消后清除，减少动态效果时保留静态高亮。油口过近时请放大后选择。Esc、移出画布或窗口失焦可取消拖线，工程保持。连接选择时可以滚轮缩放查看。
+          </p>
+          <p>
+            ▶运行先按当前参数初始化，Ⅱ暂停保留结果；▷单步推进一个显示步，↺复位回设计初态。没有新增运行快捷键。未知或失效结果不会当作零；运行状态在属性结果区查看，绘图来源可在“帮助
+            → 工程信息”查看。
+          </p>
+          <p>
+            右下角显示当前仿真时间及实际步长。点步长查看自动/手动选择和依据；改变选择只设置下次初始化，点击“按所选步长重新初始化”才明确应用。历史曲线步长与当前运行分开显示。
+          </p>
+          <p>
+            “新连线：理想/物理管”仅决定以后创建的连线。理想连接等压且忽略管损；物理管需填写实际管长、直径等参数，先预览再确认。画线距离不代替真实管长。默认理想，可在设置中恢复默认，不更改旧管路。
+          </p>
+          <p>
+            从“编辑 → 连接”开始，依次选两个油口或显式节点；“编辑 →
+            取消连接”或Esc结束手势。画面交叉不代表连通。选择对象、拖动、查看和保存不改变有效物理结果；真实参数或拓扑变化后需重新初始化。
+          </p>
+          <button data-command="idealMode">恢复新连线默认（理想）</button>
+        </section>
+        <section data-help-section="files" hidden>
+          <p>图中名称显示选项在PDF/SVG原理图导出窗口，右侧不再放置。</p>
+          <h3>文件与导出</h3>
+          <p>
+            新建时填写工程名，生成同名工程目录；重名自动递增编号，保留已有文件。打开目录中的“工程.hydproj”。“工程目录说明.md”解释每个目录的用途；整个目录可以一起移动。
+          </p>
+          <p>
+            旧hydx/JSON导入后另存文件夹副本，保留原件。保存保留旧批次；另存只带当前保存快照，不复制旧结果和诊断。教学端继续使用原单文件，不打开进阶文件夹工程。
+          </p>
+          <p>
+            文件夹工程的PDF、SVG、CSV、Word及曲线数据按用途归档到exports，每次单独成批，重名递增编号；也可另选导出位置。归档不保存当前编辑，结果身份见各批index.json。
+          </p>
+          <p>
+            帮助菜单可归档本机应用诊断：当前及最近20次界面诊断、当前运行诊断，最多200项，省略自由文本、路径、用户标签及鉴权信息，不上传。保存在diagnostics；历史保存、导出与诊断批次不自动清理。
+          </p>
+          <p>
+            “文件”菜单集中新建、打开、保存、另存为和导出。Ctrl+S保存，Ctrl+Shift+S另存为。取消或失败保留当前编辑；保存期间又编辑时，只确认已捕获的版本，当前新编辑仍显示未保存。
+          </p>
+          <p>
+            进阶端使用v3工程；旧文件通过迁移副本打开并另存，保留原模型，不承诺可由原生网络求解。教学端不能打开v3自由网络工程。
+          </p>
+          <p>
+            CSV是表格数据，SVG是矢量图；曲线、计算过程和导出使用明确的当前/历史来源，未知值留空。导出有现有容量保护，超过容量会明确失败，不静默减少精度或丢样。
+          </p>
+          <details>
+            <summary>工程目录导读</summary>
+            <pre id="projectFolderGuide" style="white-space: pre-wrap; font: inherit"></pre>
+          </details>
+        </section>
+        <section data-help-section="symbols" hidden>
+          <h3>符号与压力</h3>
+          <p id="pressureLegend"></p>
+          <p>
+            从“视图 → 显示设置 →
+            压力颜色分级”打开设置窗口，可选择2～4档并填写递增上限，应用后画布与SVG使用同一分级。本机保存失败时保留原分级。元件数据默认只显示所选对象；“全图数据”可查看所有量。面板与曲线共用标明时刻的捕获；读取/刷新可更新，画布当前运行实时变化。
+          </p>
+          <details class="section" id="networkHelp" open>
+            <summary>使用帮助与符号说明</summary>
+            <p>
+              从“视图 → 元件库”添加元件，从“编辑 →
+              添加分支节点”添加节点，通过油口或显式分支节点连接。新连线默认理想等压、忽略管损；手动物理管需填写实际参数、预览后确认。选中已有物理管可编辑，恢复默认不会改变已保存管路。未选中时隐藏普通名称，油口和告警保留；选中后只显示名称，实际状态与请求在侧栏查看。管线交叉不连通。Shift
+              点击多选；空白拖框按中心选入元件和节点，一次拖动提交一次组移。普通点击节点选择，连线工具可从节点起接。Ctrl+Z/Y/Shift+Z
+              撤销重做，Ctrl+S/Shift+S 保存/另存为，画布 Ctrl+A 全选，Home 适合全图；Esc
+              或失焦取消手势。输入框保留原生快捷键。滚轮以鼠标为中心缩放，中键平移，允许负坐标和原页面外布局。视图保存不改变运行。运行需要完整回路、有效参数和初态。
+            </p>
+            <p>
+              P 为压力供油口，T 为回油口，A/B 为工作油口，S 为泵吸油口，H 为容腔连接口。三位四通阀左位 P→A、B→T；右位
+              P→B、A→T；O 型中位四口封闭，M 型中位 P→T 卸荷、A/B
+              封闭。箭头表示名义工作流向，反向流动仍由实际压差决定，封口短横线表示阻断；默认两侧为电磁操纵与弹簧复位。
+            </p>
+            <p>
+              两端驱动可分别选择手控按钮/手柄/脚踏、机控顶杆/滚轮、液控/电磁，以及弹簧复位和先导式；符号与名称随配置更新，名称仍可手动编辑。驱动设置用于保存符号和配置描述，换位仍采用现有离散命令，不新增驱动力或先导压力回路。相同名称依次追加1、2等编号，避免覆盖；点击收藏卡片左上角星标可取消收藏，工程中已放置的阀保持。机能下拉只显示图形，键盘和读屏仍可识别机能名称。
+            </p>
+            <p>
+              元件库统一从“换向阀”进入，先选通数，再选位数；符号预览下方点击各位图形，展开后用滚轮浏览机能。二/三位、二至五通可独立配置，三通含五种、四通含十五种连通拓扑，五通R为第二回油口。收藏使用当前名称，保存到本机元件库；星标、折角和粗边框表示常用收藏，点击或拖放可生成独立实例。收藏不修改当前工程，新建取消不放置元件。未运行或暂停时双击已有阀可调整，应用可撤销；有接线的油口不能直接移除。旧阀未改变机能/类型/开口时保持原模型；明确改变后采用新准静态模型。三口及以上互通使用零储油内部汇流点，各支路开口为所填等效两口面积的√2倍；无泄漏，不模拟阀芯惯性、过渡开口或气蚀。
+            </p>
+            <p>
+              泵属性可勾选内置溢流，真实从P回流到S，以实际P−S压差开启。默认3 MPa、最大开口1e-5
+              m²、流量系数0.67均为可改的教学假设，容量不足仍会超压保护；不是无限限压。开启后自动步长6.25 μs，可选3.125
+              μs，含电机时沿更严格限制。实际泄放流量与同源导出共用结果；尺寸初选暂不支持内置溢流，请先关闭进行初选，再开启验证。
+            </p>
+            <p>
+              泵三角向外输出液压能，马达三角向内接收液压能；单向阀允许 A→B，单向节流阀在 A→B 节流、B→A
+              经单向旁路。溢流阀为弹簧设定的直动压力阀。液压容腔表示可压缩液体容积，不代表气囊蓄能器。
+            </p>
+            <p>
+              短按阀符号的左/中/右方格可向当前阀请求换位；移动达到5个屏幕像素后按拖动处理，松开只提交布局。未初始化时须先点击运行，失效仿真不会自动恢复。暂停时请求不推进时间，实际阀位需后续成功计算步确认。绿色方格表示内核已确认的有效阀位；选中元件仅显示名称，请求与内核状态在侧栏分别标注。过渡中不高亮有效阀位。未初始化的缸和马达几何仅作示意，运行几何只用实际位移/转角。图形不替代数值结果或声明支持域。
+            </p>
+            <p>
+              点击管路后橙色高亮，按 Del 或删除按钮移除，可撤销/重做；输入框内 Del
+              仅编辑文字。正常选择、拖动、查看、保存保持自由网络运行；连接、参数、初态变化会使旧结果失效，需明确点击运行重新初始化。复位返回设计初态。教学展示端使用准静态教学模型，失焦暂停规则与本页不同。
+            </p>
+            <p>
+              CSV 为表格数据，SVG 为可缩放矢量图。中文列说明随 CSV 元数据导出；技术字段、模型标识、公式变量和 SI
+              单位保留以便核查。未知值显示 —，不按零处理。历史来源与当前有效快照不能混用。
+            </p>
+          </details>
+        </section>
+        <section data-help-section="advanced" hidden>
+          <h3>现有高级工具入口</h3>
+          <p>
+            “工具 →
+            计算”打开基础初选或多工况初选；均在独立窗口操作。基础默认按现有缸/马达几何核算单工况需求，尺寸初选才要求选缸。需求核算默认开启“自动补全未填写参数”：唯一泵及执行器自动选定，仍需确认动作方向和阀位。只改关心的数值，手动输入优先，清空恢复自动；可关闭自动配置或点击“恢复全部自动配置”。工程保存转速与教学假设分别标注，计算过程和CSV记录实际SI输入及来源。教学自动配置v1采用缸速1
+            mm/s、总阻力0.2 kN，马达60 r/min、总阻矩0.1
+            N·m，效率1、忽略供油压降、忽略回油损失并按唯一油箱压力作为回油腔压力假设，无唯一压力源时采用2
+            MPa试算预算。这些不是实际工况、实测效率/腔压或供油保证，也不会自动改动负载、阀位或溢流设定；不符合真实要求时请覆盖。多对象不套用首实例，缺可靠来源和非法数值仍定位到字段。新增工况使用独立教学假设，不复制上一阶段的手动目标。先预览，经确认应用可一次撤销；关闭/Esc取消预览，原工程保留。单缸尺寸初选仍需其明确设计目标；这里没有增加恒压源需求核算或任意网络反求能力。
+          </p>
+          <p>
+            快捷工具栏“整理”一次整理元件、分支节点与连线，包含重建手动线路，可一次撤销。Ctrl+Shift+L仅整理自动连线，元件、分支节点和手动线路保持原位，输入框内保留文字操作。“编辑
+            →
+            手动绘图路径…”可调整手动路径。避障警告悬浮显示，调整遮挡元件或拖动线段中点可手动修补。绘图调整不改变物理管长。
+          </p>
+          <p>
+            “工具 → 本机 AI 接入与候选”查看连接状态和编辑预览；“工具 → 允许 AI
+            操作”默认关闭，打开后支持的Windows客户端自动连接，修改仍须逐次接受。关闭、换工程和退出会退役旧凭证，不自动上传。工程AI.md指向自动接入说明；不支持本机发现的环境可查看高级手动连接，不能据此提升Harness权限。详细参数和来源仍可在相应面板展开。工具
+            → AI → 「手动建议」是客户端无法直接连接时的备用入口。可选工程或元件、填写要求并复制参数提示，粘贴 AI 返回的
+            JSON
+            后，到「修改候选」核对原值、建议值、单位及来源。工程或运行身份改变时重新生成提示。软件不自动发送工程，建议须经确认后应用。
+          </p>
+        </section>
+        <section data-help-section="project" hidden>
+          <h3>当前工程信息</h3>
+          <p id="drawingSource" class="source"></p>
+          <p id="connectionCount"></p>
+          <p>这里显示当前工程的数量，日常画布不常驻这些计数。工程名称和保存状态在窗口顶部。</p>
+        </section>
+      </div>
+    </dialog>
+    <dialog id="textAnnotationDialog" class="text-annotation-editor">
+      <div class="dialog-head">
+        <strong>文本标注</strong><button id="closeTextAnnotation" type="button">取消</button>
+      </div>
+      <div class="dialog-body">
+        <label
+          >文字内容<textarea
+            id="annotationText"
+            rows="6"
+            maxlength="4000"
+            placeholder="输入多行文字，按Enter换行"
+          ></textarea>
+        </label>
+        <div class="text-style-fields">
+          <label>宽度<input id="annotationWidth" type="number" min="60" max="3000" step="10" /></label>
+          <label>字号<input id="annotationFontSize" type="number" min="8" max="72" /></label>
+          <label>颜色<input id="annotationColor" type="color" /></label>
+          <label
+            >对齐<select id="annotationAlign">
+              <option value="left">左对齐</option>
+              <option value="center">居中</option>
+              <option value="right">右对齐</option>
+            </select></label
+          >
+          <label><input id="annotationBorder" type="checkbox" />边框</label>
+          <label><input id="annotationBackground" type="checkbox" />白色背景</label>
+        </div>
+        <p id="annotationMessage" role="status"></p>
+      </div>
+      <div class="dialog-foot">
+        <button id="deleteTextAnnotation" type="button">删除文本</button
+        ><button id="saveTextAnnotation" type="button" class="primary">应用</button>
+      </div>
+    </dialog>
+    <footer class="status statusbar">
+      <p id="status" role="status">空白工程。先添加元件并建立物理连接。</p>
+      <div class="canvas-status">
+        <button id="fitAll" title="适合全图（Home）">适合全图</button
+        ><button
+          id="connectionToggle"
+          aria-label="切换新连线方式"
+          title="仅切换后续新连线：理想 / 物理管；不转换已有管路"
+        >
+          新连线：理想</button
+        ><select id="connectionPolicy" hidden aria-label="新连线策略">
+          <option value="auto" selected>默认（理想）</option>
+          <option value="ideal">手动：理想</option>
+          <option value="pipe">手动：物理管</option></select
+        ><button id="idealMode" hidden>恢复默认</button
+        ><button id="showStep" popovertarget="stepConfig" title="查看当前实际步长与下次初始化设置">
+          <span id="stepSummary">步长：尚未初始化</span></button
+        ><span id="clock">未初始化</span>
+      </div>
+    </footer>
+    <dialog id="openDialog">
+      <div class="dialog-head"><strong>打开网络工程</strong><button data-close>关闭</button></div>
+      <div class="dialog-body"><p>打开会替换当前工作台内容；未保存内容会保留到确认保存流程中。</p></div>
+      <div class="dialog-foot">
+        <button id="confirmOpen" class="primary">选择工程文件…</button><button data-close>取消</button>
+      </div>
+    </dialog>
+    <div class="tooltip" id="uiTooltip" role="tooltip" hidden></div>
+    <script type="module" src="./network-workbench.mjs"></script>
+  </body>
+</html>

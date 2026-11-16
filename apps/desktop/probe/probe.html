@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; object-src 'none'; form-action 'none'">
+  <title>F01 隔离文件试验</title>
+  <style>
+    body { margin: 32px; font: 16px/1.6 system-ui, sans-serif; color: #172b3a; }
+    h1 { font-size: 24px; } button { padding: 10px 18px; margin-right: 12px; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #edf2f7; padding: 16px; }
+  </style>
+</head>
+<body>
+  <h1>F01 隔离文件试验</h1>
+  <p>此窗口只检验原生对话框和固定样本的读写。请使用默认样本目录；不覆盖已有文件。</p>
+  <p>先保存样本，再打开刚保存的文件。两个结果的字节数和 SHA-256 应一致，matchesSample 应为 true。</p>
+  <button id="save">保存试验样本</button><button id="open">打开试验样本</button>
+  <pre id="result" role="status">等待操作</pre>
+  <p>工作台原有的保存、导出功能独立运行。正式工程文件服务在 F06 实施。</p>
+  <script src="./probe.js"></script>
+</body>
+</html>

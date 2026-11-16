@@ -1,0 +1,151 @@
+{
+  "format": "HydraulicWorkbench",
+  "version": 1,
+  "name": "小臂尺寸参考 · 演示工况",
+  "fluid": {
+    "density": 870,
+    "viscosity": 46
+  },
+  "components": [
+    {
+      "id": "tank1",
+      "type": "tank",
+      "x": 120,
+      "y": 465,
+      "label": "油箱",
+      "params": {
+        "pressure": 0
+      }
+    },
+    {
+      "id": "pump1",
+      "type": "pump",
+      "x": 120,
+      "y": 315,
+      "label": "定量泵",
+      "params": {
+        "displacement": 4,
+        "rpm": 1450,
+        "etaV": 0.92,
+        "etaTotal": 0.85
+      }
+    },
+    {
+      "id": "relief1",
+      "type": "relief",
+      "x": 365,
+      "y": 355,
+      "label": "溢流阀",
+      "params": {
+        "setting": 6.3
+      }
+    },
+    {
+      "id": "valve1",
+      "type": "valve",
+      "x": 620,
+      "y": 300,
+      "label": "三位四通阀",
+      "params": {
+        "nominalFlow": 40,
+        "drop": 0.5
+      },
+      "center": "closed"
+    },
+    {
+      "id": "act1",
+      "type": "cylinder",
+      "x": 625,
+      "y": 105,
+      "label": "双作用液压缸",
+      "params": {
+        "bore": 25,
+        "rod": 16,
+        "stroke": 500,
+        "loadExt": 1,
+        "loadRet": 0.5,
+        "eta": 0.95
+      }
+    }
+  ],
+  "wires": [
+    {
+      "id": "w1",
+      "from": "pump1:P",
+      "to": "valve1:P",
+      "params": {
+        "diameter": 16,
+        "length": 1,
+        "roughness": 0.03,
+        "K": 1
+      }
+    },
+    {
+      "id": "w2",
+      "from": "pump1:P",
+      "to": "relief1:P",
+      "params": {
+        "diameter": 16,
+        "length": 1,
+        "roughness": 0.03,
+        "K": 1
+      }
+    },
+    {
+      "id": "w3",
+      "from": "relief1:T",
+      "to": "tank1:T",
+      "params": {
+        "diameter": 16,
+        "length": 1,
+        "roughness": 0.03,
+        "K": 1
+      }
+    },
+    {
+      "id": "w4",
+      "from": "valve1:T",
+      "to": "tank1:T",
+      "params": {
+        "diameter": 16,
+        "length": 1,
+        "roughness": 0.03,
+        "K": 1
+      }
+    },
+    {
+      "id": "w5",
+      "from": "tank1:T",
+      "to": "pump1:S",
+      "params": {
+        "diameter": 25,
+        "length": 1,
+        "roughness": 0.03,
+        "K": 1
+      }
+    },
+    {
+      "id": "w6",
+      "from": "valve1:A",
+      "to": "act1:A",
+      "params": {
+        "diameter": 16,
+        "length": 1,
+        "roughness": 0.03,
+        "K": 1
+      }
+    },
+    {
+      "id": "w7",
+      "from": "valve1:B",
+      "to": "act1:B",
+      "params": {
+        "diameter": 16,
+        "length": 1,
+        "roughness": 0.03,
+        "K": 1
+      }
+    }
+  ],
+  "note": "几何尺寸 25/16/500 mm 参考用户既有设计型号；负载、泵与阀参数为独立演示设定，不是原设计复现。"
+}

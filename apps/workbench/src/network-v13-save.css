@@ -1,0 +1,86 @@
+/* Accepted V1.3 white presentation; sync with tools/project/v13-white-assets.mjs. */
+.save-symbol {
+  display: block;
+  width: 21px;
+  height: 21px;
+  overflow: visible;
+  pointer-events: none;
+}
+.save-idle,
+.save-working,
+.save-confirm {
+  transform-box: view-box;
+  transform-origin: 12px 12px;
+  transition:
+    opacity 160ms var(--ease-out),
+    transform 240ms var(--ease-out);
+}
+.save-idle {
+  opacity: 1;
+  transform: none;
+}
+.save-working {
+  opacity: 0;
+  transform: translateY(1.5px) scale(0.94);
+}
+.save-confirm {
+  opacity: 0;
+  transform: scale(0.88);
+}
+.save-spinner {
+  transform-box: view-box;
+  transform-origin: 12px 12px;
+  animation: save-processing 1000ms linear infinite paused;
+}
+#saveProject:is([data-save-phase='working'], [data-save-phase='confirmed']) .save-idle {
+  opacity: 0;
+  transform: translateY(-1.5px) scale(0.9);
+}
+#saveProject[data-save-phase='working'] .save-working {
+  opacity: 1;
+  transform: none;
+  transition-delay: 0ms, 25ms;
+}
+#saveProject[data-save-phase='confirmed'] .save-working {
+  transform: none;
+}
+#saveProject[data-save-phase='confirmed'] .save-confirm {
+  opacity: 1;
+  transform: none;
+}
+#saveProject .action-ack-circle {
+  stroke: var(--action-ack-ink);
+  stroke-opacity: 0.12;
+  stroke-width: 0.65;
+}
+/* The puck arrives first; the check follows instead of flashing on at the same instant. */
+#saveProject .action-ack-check {
+  transition: stroke-dashoffset 190ms var(--ease-out);
+}
+#saveProject[data-save-phase='confirmed'] .action-ack-check {
+  transition-delay: 65ms;
+}
+#saveProject:is([data-save-phase='working'], [data-save-phase='confirmed'])[data-save-visible='true'] .save-spinner {
+  animation-play-state: running;
+}
+@keyframes save-processing {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .save-idle,
+  .save-working,
+  .save-confirm,
+  #saveProject .action-ack-check {
+    transition: none !important;
+  }
+  #saveProject .save-idle,
+  #saveProject .save-working,
+  #saveProject .save-confirm {
+    transform: none;
+  }
+  .save-spinner {
+    animation: none;
+  }
+}

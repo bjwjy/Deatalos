@@ -1,0 +1,508 @@
+{
+  "format": "HydraulicWorkbench",
+  "version": 3,
+  "projectId": "contract-dual",
+  "title": "未命名基础回路",
+  "description": "",
+  "createdAt": "2026-10-18T00:00:00.000Z",
+  "updatedAt": "2026-10-18T00:00:00.000Z",
+  "design": {
+    "components": [
+      {
+        "id": "source",
+        "typeId": "pressure-source",
+        "definition": {
+          "id": "teaching:pressure-source",
+          "version": 1
+        },
+        "model": {
+          "id": "teaching:pressure-source",
+          "version": "0.1.0"
+        },
+        "label": "source",
+        "parameters": {
+          "hydraulic": {
+            "pressurePa": 5100000
+          }
+        }
+      },
+      {
+        "id": "reservoir",
+        "typeId": "tank",
+        "definition": {
+          "id": "builtin:tank",
+          "version": 1
+        },
+        "model": {
+          "id": "legacy-basic:tank",
+          "version": "1.0.0-experimental"
+        },
+        "label": "reservoir",
+        "parameters": {
+          "legacy": {
+            "gaugePressurePa": 0
+          }
+        }
+      },
+      {
+        "id": "volume",
+        "typeId": "volume",
+        "definition": {
+          "id": "teaching:volume",
+          "version": 1
+        },
+        "model": {
+          "id": "teaching:volume",
+          "version": "0.1.0"
+        },
+        "label": "volume",
+        "parameters": {
+          "hydraulic": {
+            "volumeM3": 0.0001
+          }
+        }
+      },
+      {
+        "id": "valve1",
+        "typeId": "valve",
+        "definition": {
+          "id": "teaching:valve-o",
+          "version": 1
+        },
+        "model": {
+          "id": "teaching:valve-o",
+          "version": "0.1.0"
+        },
+        "label": "valve1",
+        "parameters": {
+          "spool": {
+            "commandTravelM": 0.0003,
+            "maximumTravelM": 0.01,
+            "diameterM": 0.01,
+            "overlapM": 0.00001,
+            "frequencyRadPerS": 100,
+            "dampingRatio": 1
+          },
+          "hydraulic": {
+            "flowCoefficient": 0.67
+          }
+        }
+      },
+      {
+        "id": "cylinder1",
+        "typeId": "cylinder",
+        "definition": {
+          "id": "teaching:cylinder",
+          "version": 1
+        },
+        "model": {
+          "id": "teaching:cylinder",
+          "version": "0.1.0"
+        },
+        "label": "cylinder1",
+        "parameters": {
+          "geometry": {
+            "capAreaM2": 0.001,
+            "rodSideAreaM2": 0.0006,
+            "strokeM": 1,
+            "capDeadVolumeM3": 0.0003,
+            "rodDeadVolumeM3": 0.0003
+          },
+          "mechanics": {
+            "massKg": 100,
+            "loadDampingNsPerM": 20000,
+            "pistonDampingNsPerM": 1000,
+            "externalForceN": 0
+          },
+          "hydraulic": {
+            "internalLeakageM3PerSPa": 0
+          }
+        }
+      },
+      {
+        "id": "valve2",
+        "typeId": "valve",
+        "definition": {
+          "id": "teaching:valve-o",
+          "version": 1
+        },
+        "model": {
+          "id": "teaching:valve-o",
+          "version": "0.1.0"
+        },
+        "label": "valve2",
+        "parameters": {
+          "spool": {
+            "commandTravelM": 0.0003,
+            "maximumTravelM": 0.01,
+            "diameterM": 0.01,
+            "overlapM": 0.00001,
+            "frequencyRadPerS": 100,
+            "dampingRatio": 1
+          },
+          "hydraulic": {
+            "flowCoefficient": 0.67
+          }
+        }
+      },
+      {
+        "id": "cylinder2",
+        "typeId": "cylinder",
+        "definition": {
+          "id": "teaching:cylinder",
+          "version": 1
+        },
+        "model": {
+          "id": "teaching:cylinder",
+          "version": "0.1.0"
+        },
+        "label": "cylinder2",
+        "parameters": {
+          "geometry": {
+            "capAreaM2": 0.001,
+            "rodSideAreaM2": 0.0006,
+            "strokeM": 1,
+            "capDeadVolumeM3": 0.0003,
+            "rodDeadVolumeM3": 0.0003
+          },
+          "mechanics": {
+            "massKg": 100,
+            "loadDampingNsPerM": 20000,
+            "pistonDampingNsPerM": 1000,
+            "externalForceN": 0
+          },
+          "hydraulic": {
+            "internalLeakageM3PerSPa": 0
+          }
+        }
+      },
+      {
+        "id": "throttle",
+        "typeId": "throttle",
+        "definition": {
+          "id": "teaching:throttle",
+          "version": 1
+        },
+        "model": {
+          "id": "teaching:throttle",
+          "version": "0.1.0"
+        },
+        "label": "throttle",
+        "parameters": {
+          "hydraulic": {
+            "maximumAreaM2": 0.00001,
+            "flowCoefficient": 0.67
+          }
+        }
+      }
+    ],
+    "nodes": [
+      {
+        "id": "branch",
+        "kind": "ideal-hydraulic",
+        "label": "工程理想分支节点"
+      }
+    ],
+    "connections": [
+      {
+        "id": "supply",
+        "from": {
+          "kind": "port",
+          "componentId": "source",
+          "portId": "P"
+        },
+        "to": {
+          "kind": "port",
+          "componentId": "throttle",
+          "portId": "A"
+        },
+        "kind": "ideal"
+      },
+      {
+        "id": "throttled",
+        "from": {
+          "kind": "port",
+          "componentId": "throttle",
+          "portId": "B"
+        },
+        "to": {
+          "kind": "node",
+          "nodeId": "branch"
+        },
+        "kind": "ideal"
+      },
+      {
+        "id": "volume-link",
+        "from": {
+          "kind": "port",
+          "componentId": "volume",
+          "portId": "H"
+        },
+        "to": {
+          "kind": "node",
+          "nodeId": "branch"
+        },
+        "kind": "ideal"
+      },
+      {
+        "id": "p1",
+        "from": {
+          "kind": "node",
+          "nodeId": "branch"
+        },
+        "to": {
+          "kind": "port",
+          "componentId": "valve1",
+          "portId": "P"
+        },
+        "kind": "ideal"
+      },
+      {
+        "id": "t1",
+        "from": {
+          "kind": "port",
+          "componentId": "valve1",
+          "portId": "T"
+        },
+        "to": {
+          "kind": "port",
+          "componentId": "reservoir",
+          "portId": "T"
+        },
+        "kind": "ideal"
+      },
+      {
+        "id": "a1",
+        "from": {
+          "kind": "port",
+          "componentId": "valve1",
+          "portId": "A"
+        },
+        "to": {
+          "kind": "port",
+          "componentId": "cylinder1",
+          "portId": "A"
+        },
+        "kind": "ideal"
+      },
+      {
+        "id": "b1",
+        "from": {
+          "kind": "port",
+          "componentId": "valve1",
+          "portId": "B"
+        },
+        "to": {
+          "kind": "port",
+          "componentId": "cylinder1",
+          "portId": "B"
+        },
+        "kind": "ideal"
+      },
+      {
+        "id": "p2",
+        "from": {
+          "kind": "node",
+          "nodeId": "branch"
+        },
+        "to": {
+          "kind": "port",
+          "componentId": "valve2",
+          "portId": "P"
+        },
+        "kind": "ideal"
+      },
+      {
+        "id": "t2",
+        "from": {
+          "kind": "port",
+          "componentId": "valve2",
+          "portId": "T"
+        },
+        "to": {
+          "kind": "port",
+          "componentId": "reservoir",
+          "portId": "T"
+        },
+        "kind": "ideal"
+      },
+      {
+        "id": "a2",
+        "from": {
+          "kind": "port",
+          "componentId": "valve2",
+          "portId": "A"
+        },
+        "to": {
+          "kind": "port",
+          "componentId": "cylinder2",
+          "portId": "A"
+        },
+        "kind": "ideal"
+      },
+      {
+        "id": "b2",
+        "from": {
+          "kind": "port",
+          "componentId": "valve2",
+          "portId": "B"
+        },
+        "to": {
+          "kind": "port",
+          "componentId": "cylinder2",
+          "portId": "B"
+        },
+        "kind": "ideal"
+      }
+    ],
+    "initialConditions": [
+      {
+        "componentId": "volume",
+        "kind": "volume",
+        "pressurePa": 100000
+      },
+      {
+        "componentId": "valve1",
+        "kind": "valve",
+        "positionId": "extend"
+      },
+      {
+        "componentId": "cylinder1",
+        "kind": "cylinder",
+        "positionM": 0.1,
+        "velocityMPerS": 0,
+        "capPressurePa": null,
+        "rodPressurePa": null
+      },
+      {
+        "componentId": "valve2",
+        "kind": "valve",
+        "positionId": "retract"
+      },
+      {
+        "componentId": "cylinder2",
+        "kind": "cylinder",
+        "positionM": 0.2,
+        "velocityMPerS": 0,
+        "capPressurePa": null,
+        "rodPressurePa": null
+      },
+      {
+        "componentId": "throttle",
+        "kind": "throttle",
+        "openingAreaM2": 0.000002
+      }
+    ],
+    "fluid": {
+      "densityKgPerM3": 870,
+      "kinematicViscosityM2PerS": 0.000046,
+      "bulkModulusPa": 1000000000
+    },
+    "pressureReference": {
+      "kind": "kernel-numeric",
+      "absoluteReferencePa": null
+    }
+  },
+  "layout": {
+    "components": [
+      {
+        "componentId": "source",
+        "x": 140,
+        "y": 200
+      },
+      {
+        "componentId": "reservoir",
+        "x": 180,
+        "y": 200
+      },
+      {
+        "componentId": "volume",
+        "x": 220,
+        "y": 200
+      },
+      {
+        "componentId": "valve1",
+        "x": 260,
+        "y": 200
+      },
+      {
+        "componentId": "cylinder1",
+        "x": 300,
+        "y": 200
+      },
+      {
+        "componentId": "valve2",
+        "x": 340,
+        "y": 200
+      },
+      {
+        "componentId": "cylinder2",
+        "x": 380,
+        "y": 200
+      },
+      {
+        "componentId": "throttle",
+        "x": 420,
+        "y": 200
+      }
+    ],
+    "nodes": [
+      {
+        "nodeId": "branch",
+        "x": 300,
+        "y": 100
+      }
+    ],
+    "routes": [
+      {
+        "connectionId": "supply",
+        "mode": "auto"
+      },
+      {
+        "connectionId": "throttled",
+        "mode": "auto"
+      },
+      {
+        "connectionId": "volume-link",
+        "mode": "auto"
+      },
+      {
+        "connectionId": "p1",
+        "mode": "auto"
+      },
+      {
+        "connectionId": "t1",
+        "mode": "auto"
+      },
+      {
+        "connectionId": "a1",
+        "mode": "auto"
+      },
+      {
+        "connectionId": "b1",
+        "mode": "auto"
+      },
+      {
+        "connectionId": "p2",
+        "mode": "auto"
+      },
+      {
+        "connectionId": "t2",
+        "mode": "auto"
+      },
+      {
+        "connectionId": "a2",
+        "mode": "auto"
+      },
+      {
+        "connectionId": "b2",
+        "mode": "auto"
+      }
+    ]
+  },
+  "provenance": {
+    "createdWithAppVersion": "E00B-contract-1",
+    "preferredSolverId": "hopsan"
+  },
+  "extensions": {}
+}

@@ -1,0 +1,237 @@
+/* Accepted V1.3 white presentation; sync with tools/project/v13-white-assets.mjs. */
+@property --planet-system-phase {
+  syntax: '<angle>';
+  inherits: true;
+  initial-value: 0deg;
+}
+#mainMenus {
+  z-index: 5;
+}
+.theme-planet {
+  --planet-a: #e1e8f3;
+  --planet-b: #97a7c0;
+  --planet-c: #53617a;
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 43px;
+  height: 32px;
+  margin-left: 8px;
+  padding: 0;
+  border-radius: 9px;
+  color: #75829a;
+  touch-action: manipulation;
+}
+.theme-planet::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 9px;
+  height: 14px;
+  width: 1px;
+  background: #8e95a333;
+}
+.theme-planet:hover,
+.theme-planet:focus-visible {
+  background: #8798b414;
+}
+.theme-planet:active:not(:disabled) {
+  transform: none;
+}
+.planet-stage {
+  position: relative;
+  display: block;
+  width: 43px;
+  height: 30px;
+  --orbit-rx: 22px;
+  --orbit-ry: 10px;
+  --orbit-tilt: -30deg;
+  pointer-events: none;
+}
+.planet-object {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  --orbit-delta: calc(var(--planet-system-phase) - var(--planet-slot) * 120deg);
+  --orbit-angle: calc(90deg + var(--orbit-delta));
+  --orbit-u: calc(var(--orbit-rx) * cos(var(--orbit-angle)));
+  --orbit-v: calc(var(--orbit-ry) * sin(var(--orbit-angle)));
+  --orbit-x: calc(
+    var(--orbit-u) * cos(var(--orbit-tilt)) - var(--orbit-v) * sin(var(--orbit-tilt)) + var(--orbit-ry) *
+      sin(var(--orbit-tilt))
+  );
+  --orbit-y: calc(
+    var(--orbit-u) * sin(var(--orbit-tilt)) + var(--orbit-v) * cos(var(--orbit-tilt)) - var(--orbit-ry) *
+      cos(var(--orbit-tilt))
+  );
+  opacity: clamp(0, calc((cos(var(--orbit-delta)) + 0.5) / 1.5), 1);
+  transform: translate(var(--orbit-x), var(--orbit-y));
+}
+.planet-glyph {
+  position: absolute;
+  z-index: 1;
+  left: -10px;
+  top: -6px;
+  width: 40px;
+  height: 32px;
+  overflow: visible;
+  transform: scale(0.88);
+  transform-origin: center;
+  shape-rendering: geometricPrecision;
+}
+.planet-ring-edge {
+  fill: none;
+  stroke: #263344;
+  stroke-width: 3.8px;
+}
+.planet-ring-band {
+  fill: none;
+  stroke: var(--planet-b);
+  stroke-width: 3px;
+}
+.planet-ball {
+  stroke: #263344;
+  stroke-width: 0.65px;
+}
+.planet-object[data-theme='coral'] {
+  --planet-a: #ff9879;
+  --planet-b: #b0a0f5;
+  --planet-c: #373146;
+}
+.planet-object[data-theme='oat'] {
+  --planet-a: #fff2c6;
+  --planet-b: #e9bb5c;
+  --planet-c: #8d9e8a;
+}
+.planet-orbits {
+  position: absolute;
+  left: -16px;
+  top: -13px;
+  width: 52px;
+  height: 46px;
+  overflow: visible;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms;
+}
+.planet-orbits.rear {
+  z-index: 0;
+}
+.planet-orbits.front {
+  z-index: 2;
+}
+.planet-object[data-applied='false'] .planet-orbits {
+  opacity: 1;
+}
+.planet-orbit-guide {
+  fill: none;
+  stroke: var(--planet-b);
+  stroke-width: 0.5;
+  opacity: 0.2;
+}
+.planet-trail {
+  stroke: var(--satellite-color);
+  stroke-linecap: round;
+}
+.planet-caption {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translate(-50%, -3px);
+  padding: 6px 9px;
+  border: 1px solid #ffffff20;
+  border-radius: 7px;
+  background: #292d35;
+  color: #f5f3ee;
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 120ms,
+    transform 180ms var(--ease);
+}
+.theme-planet:is(:hover, :focus-visible) .planet-caption {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+/* Capture resolved colors, not intermediate per-control color transitions. */
+.theme-snapshot *,
+.theme-snapshot *::before,
+.theme-snapshot *::after {
+  transition: none !important;
+}
+::view-transition {
+  pointer-events: none;
+}
+::view-transition-group(root) {
+  animation: none;
+}
+::view-transition-image-pair(root) {
+  isolation: auto;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 2;
+}
+.theme-wave-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  pointer-events: none;
+  view-transition-name: theme-wave;
+}
+::view-transition-group(theme-wave) {
+  z-index: 3;
+  animation: none;
+  overflow: visible;
+}
+::view-transition-image-pair(theme-wave) {
+  overflow: visible;
+}
+::view-transition-old(theme-wave) {
+  display: none;
+}
+::view-transition-new(theme-wave) {
+  position: absolute;
+  top: var(--theme-wave-y);
+  left: var(--theme-wave-x);
+  width: 0;
+  height: 0;
+  box-sizing: border-box;
+  transform: translate(-50%, -50%);
+  border: 3px solid;
+  border-color: #e4df82 #93c779 #b9dc79 #d3e18c;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 1px #46642a99,
+    0 0 9px 2px #c4e88b70,
+    inset 0 0 5px #e3ef9c66;
+  animation: none;
+  opacity: 0;
+  mix-blend-mode: normal;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .planet-caption,
+  .planet-orbits {
+    transition: none;
+  }
+  .planet-trail {
+    display: none;
+  }
+}

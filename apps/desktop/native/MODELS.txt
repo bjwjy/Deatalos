@@ -1,0 +1,137 @@
+HydraulicWorkbench E04B native extension / model set 0.2.0
+
+teaching-restriction.cpp is project-authored local constitutive code. It solves
+one two-port pressure/flow relation and registers it with Hopsan. It is not a
+network solver. It implements zero-leak one-way restriction with cracking
+differential, quasi-static relief with turbulent droop, and a parallel
+bidirectional meter/reverse check. No spool inertia, hysteresis or cavitation
+model is claimed. Negative native pressure aborts the run.
+
+kernel-host.cpp is derived from this project's frozen E00C/Gate-R host. It loads
+the additional fixed, trusted component library and applies deferred multiport
+start values after connection, before initialization. The old string API ignored
+unconnected multiports; explicit non-default oil pressure is now honored.
+E00D adapters still own parsing, identities, sequential native operations,
+process resources, timeouts, failure isolation and shutdown.
+
+The external Hopsan core, default components and toolchain retain their original
+licenses. Hopsan headers are used through its external component interface;
+default components and their binaries are unmodified. This notice neither
+relicenses third-party software nor establishes final redistribution approval.
+See the adjacent Hopsan/GCC/runtime/SUNDIALS/RapidXML/winpthreads notices.
+
+Core ABI: 2.24.4.20260918.1254, x64, cached MinGW-w64 toolchain.
+Build: tools/build/build-kernel-e04b.ps1. Sources and SHA-256 are recorded in the
+native build manifest and the E04B verification candidate. Development use only;
+clean-target, installer and distribution reviews remain F09/G3 work.
+
+E1.1S11 model set 0.4.0 adds HydraulicTeachingDirectional2/3/4/5. Each prescribed
+quasistatic working position contains only a finite matching of disjoint
+bidirectional sharp-edged orifices, with explicit area, coefficient and density.
+The signed local root satisfies R*q*abs(q)+(Z1+Z2)*q=c1-c2; Hopsan still owns
+network coupling. There is no spool inertia, transition-opening, arbitrary port
+graph, pneumatic exhaust, or cavitation model. Invalid masks/nonfinite or
+negative native pressure abort; this is not an industrial transient certificate.
+
+Pump definition v3 uses the existing fixed-displacement pump, explicit suction
+and delivery oil storage, plus an optional HydraulicTeachingRestriction from P
+to the same pump's S port. It is normally disabled. The saved cracking pressure
+is a P-S differential; finite area means pressure can exceed cracking pressure.
+Actual bypass flow is metered separately. No hidden tank or pressure clamp is
+introduced. Enabled relief uses the stricter S11 step capability. Rebuilt native
+images are staged under a SHA-256 directory to preserve open desktop processes.
+
+E1.1S11 model set 0.5.0 adds HydraulicTeachingManifold2/3/4/5 for directional
+definition v2. Old v1/disjoint model registrations are retained. Each connected
+group of three or more ports is a local zero-storage common-pressure junction.
+Every branch uses area sqrt(2)*A, with A the explicitly entered equivalent
+two-port area. Branch q satisfies pJ-c = Z*q + rho*q*abs(q)/(4*(Cq*A)^2).
+The local scalar mass balance is bracketed between boundary wave values and
+solved to <=1e-12 m3/s + 1e-9 sum(abs(q)); failure aborts. The disjoint two-port
+law stays exact. There is no hidden reservoir, leakage, cavitation, spool
+inertia or transition opening. Hydraulic pressure coupling remains in Hopsan.
+
+E1.2S08 / model set 0.6.0: HydraulicTeachingReducer, HydraulicTeachingSequence,
+HydraulicTeachingPilotCheckInternal (A/B/X) and HydraulicTeachingPilotCheck
+(A/B/X/Y). Finite quasistatic teaching constitutive models; actual A return
+pressure or external Y pressure enters the respective pilot force balance.
+An internal-drain pilot unable to sustain full opening is refused, not metered
+as a counterbalance valve. No inertia, cavitation, transient pilot displacement
+or vendor calibration. See docs/architecture/E1.2S08-压力控制与锁紧元件契约.md.
+
+E1.2S09 / model set 0.7.0 adds HydraulicTeachingCounterbalance (non-vented A/B/X,
+finite continuous load/pilot metering plus free check) and
+HydraulicTeachingCompensatedFlow (two-port P/A restrictive regulation, insufficient
+pressure reduces flow, reverse through the same non-compensated metering opening).
+No hidden supply/drain, gas storage, spool inertia or calibrated transient stability.
+See docs/architecture/E1.2S09-调速与负载控制模型契约.md.
+
+E1.2S09 step 2 / model set 0.8.0 adds HydraulicTeachingAccumulator: single
+liquid port H, ideal fixed-exponent polytropic gas, absolute precharge, explicit
+initial liquid inventory, finite linear inlet resistance, incompressible liquid.
+Conservative backward-Euler inventory balance and monotone scalar root couple
+the gas state to the actual Hopsan TLM boundary. Empty bladder contact prevents
+gas injection. Further compression below the declared minimum gas volume, or
+gas pressure above 20 MPa absolute, fails explicitly. Output E is compression
+work relative to the empty/precharged state, not gas internal energy or rated
+usable hydraulic energy. No heat-transfer state, real-gas correction, leakage,
+manufacturer calibration, arbitrary zero-volume-network support or safety rating.
+
+E1.2S11 adds HydraulicTeachingShuttle v0.1.0: two forward-only inlet seats
+share a finite area to outlet C. Their area fraction depends on actual A-B
+pressure; each lower-pressure seat closes outside the symmetric transition
+band. The algebraic three-port relation conserves flow without oil storage,
+spool inertia, leakage or reverse discharge. Manual shutoff reuses the pinned
+turbulent orifice with two accepted areas only: zero and the full-open area.
+
+E1.2S08 second batch, model revision 0.1.0. HydraulicTeachingTwoPressure
+shares the shuttle seats and gates their total area by the lower actual
+inlet pressure above the declared reference and enable threshold.
+HydraulicTeachingPilotClose adds the positive X-to-A pilot differential
+times the pilot ratio to the forward cracking head. The pilot port has
+zero continuous flow. HydraulicTeachingReducingRelieving meters P-to-A
+below the A-to-T setpoint and A-to-T above it, with finite area and no
+cross-flow through P-to-T. All three solve local quasistatic TLM relations.
+
+E26 third actuator batch, revision 0.1.0. The spring cylinder, cushioned
+single/double rod cylinders and limited rotary actuator share a generalized
+coordinate integrator. The physical port volumes are explicit fixed
+equivalent oil storage in the Hopsan mapping. Swept volume follows the
+accepted coordinate increment. The cushioned models apply a position-
+dependent quadratic discharge loss to the working force on the outlet
+side. They permit filling without cushion loss. The end stops dissipate
+outward motion without rebound. Port and working pressures must stay in
+the declared pressure domain up to 70 MPa relative to the reference.
+On supported pump-fed linear actuator nets, HydraulicTeachingOilStorage
+sums the declared fixed compliance. The net flow integrates signed liquid
+inventory. Negative inventory records the cavity at the zero-pressure floor
+and must be filled before pressure recovers. No liquid source is added.
+
+E1.2S11 passive hydraulic components, revision 0.1.0. The return filter
+uses a bidirectional quadratic restriction calibrated by rated flow and
+rated drop. HydraulicTeachingDifferentialGauge has two independent zero-flow
+pressure terminals and outputs signed A minus B. HydraulicTeachingDividerCombiner
+conserves port flow and applies the same fixed ratio in both directions.
+The limiting path uses its finite full-open area. The other path is throttled
+to the ratio. Opposed heads block both paths. The model has no end-stroke
+equalization, spool inertia or leakage.
+
+E1.2S08 passive pressure components, revision 0.1.0. The three-way flow
+control meters P to A and progressively opens P to T above the compensator
+setting. Shock and makeup uses separate finite relief and check laws at A
+and B with a shared T pressure. The intensifier is an averaged transformer
+with explicit drive and return flow, finite boost resistance, a parallel
+fill bypass and reverse isolation. Piston reversals and ripple are outside
+that averaged law. These components preserve port flow and local dissipation.
+
+E1.2S08 hysteretic pressure components and synchronizing divider, revision
+0.1.0. The pressure switch exposes a zero-flow measurement and a native
+discrete contact. The remote unloading valve uses X minus T and a finite
+one-way P to T bypass. The synchronized divider blends its ordinary
+bidirectional ratio and a finite correction path when the paired flow falls
+and the branch heads diverge. The correction uses hydraulic heads alone.
+
+E1.3S12 pressure-displacement characteristic, revision 1. HydraulicTeachingMotorCurve
+samples the magnitude of the two motor port pressures' difference before each
+native step, evaluates bounded cubic Bezier segments and feeds displacement to
+the stock motor. Read-only taps introduce no hydraulic flow or additional storage.

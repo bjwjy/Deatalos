@@ -1,0 +1,13 @@
+{
+  "name": "hydraulic-workbench-f01",
+  "productName": "Hydraulic Workbench F01",
+  "version": "0.1.0",
+  "description": "液压辅助软件 F01 离线桌面可行性试验",
+  "author": "Hydraulic Workbench project",
+  "private": true,
+  "license": "Apache-2.0",
+  "main": "dist/main.cjs",
+  "dependencies": {
+    "pdf-lib": "1.17.1"
+  }
+}

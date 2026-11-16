@@ -1,0 +1,984 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:hydraulic-workbench:project:2",
+  "title": "HydraulicWorkbench v2 (F02 supported subset)",
+  "type": "object",
+  "properties": {
+    "format": {
+      "const": "HydraulicWorkbench"
+    },
+    "version": {
+      "const": 2
+    },
+    "projectId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^[-\\w]{1,40}$",
+      "not": {
+        "enum": [
+          "__proto__",
+          "constructor",
+          "prototype"
+        ]
+      }
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "\\S"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 16384
+    },
+    "note": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 16384
+    },
+    "createdAt": {
+      "type": "string",
+      "minLength": 24,
+      "maxLength": 24,
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "updatedAt": {
+      "type": "string",
+      "minLength": 24,
+      "maxLength": 24,
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "design": {
+      "type": "object",
+      "properties": {
+        "fluid": {
+          "type": "object",
+          "properties": {
+            "densityKgPerM3": {
+              "type": "number",
+              "minimum": 400,
+              "maximum": 2000,
+              "title": "油液密度",
+              "x-unit": "kg/m³",
+              "x-quantity": "density",
+              "x-legacy-key": "density"
+            },
+            "kinematicViscosityM2PerS": {
+              "type": "number",
+              "minimum": 0.000001,
+              "maximum": 0.002,
+              "title": "运动黏度",
+              "x-unit": "m²/s",
+              "x-quantity": "viscosity",
+              "x-legacy-key": "viscosity"
+            }
+          },
+          "required": [
+            "densityKgPerM3",
+            "kinematicViscosityM2PerS"
+          ],
+          "additionalProperties": false
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "pattern": "^[-\\w]{1,40}$",
+                    "not": {
+                      "enum": [
+                        "__proto__",
+                        "constructor",
+                        "prototype"
+                      ]
+                    }
+                  },
+                  "typeId": {
+                    "const": "tank"
+                  },
+                  "definitionId": {
+                    "enum": [
+                      "builtin:tank"
+                    ]
+                  },
+                  "definitionVersion": {
+                    "const": 1
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 60
+                  },
+                  "params": {
+                    "type": "object",
+                    "properties": {
+                      "gaugePressurePa": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 2000000,
+                        "title": "油箱表压",
+                        "x-unit": "Pa",
+                        "x-quantity": "pressure",
+                        "x-legacy-key": "pressure"
+                      }
+                    },
+                    "required": [
+                      "gaugePressurePa"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "id",
+                  "typeId",
+                  "definitionId",
+                  "definitionVersion",
+                  "label",
+                  "params"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "pattern": "^[-\\w]{1,40}$",
+                    "not": {
+                      "enum": [
+                        "__proto__",
+                        "constructor",
+                        "prototype"
+                      ]
+                    }
+                  },
+                  "typeId": {
+                    "const": "pump"
+                  },
+                  "definitionId": {
+                    "enum": [
+                      "builtin:pump"
+                    ]
+                  },
+                  "definitionVersion": {
+                    "const": 1
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 60
+                  },
+                  "params": {
+                    "type": "object",
+                    "properties": {
+                      "displacementM3PerRev": {
+                        "type": "number",
+                        "minimum": 1e-7,
+                        "maximum": 0.002,
+                        "title": "排量",
+                        "x-unit": "m³/rev",
+                        "x-quantity": "displacement",
+                        "x-legacy-key": "displacement"
+                      },
+                      "angularSpeedRadPerS": {
+                        "type": "number",
+                        "minimum": 0.10471975511965977,
+                        "maximum": 1047.1975511965977,
+                        "title": "转速",
+                        "x-unit": "rad/s",
+                        "x-quantity": "angularSpeed",
+                        "x-legacy-key": "rpm"
+                      },
+                      "volumetricEfficiency": {
+                        "type": "number",
+                        "minimum": 0.1,
+                        "maximum": 1,
+                        "title": "容积效率",
+                        "x-unit": "1",
+                        "x-quantity": "ratio",
+                        "x-legacy-key": "etaV"
+                      },
+                      "totalEfficiency": {
+                        "type": "number",
+                        "minimum": 0.1,
+                        "maximum": 1,
+                        "title": "总效率",
+                        "x-unit": "1",
+                        "x-quantity": "ratio",
+                        "x-legacy-key": "etaTotal"
+                      }
+                    },
+                    "required": [
+                      "displacementM3PerRev",
+                      "angularSpeedRadPerS",
+                      "volumetricEfficiency",
+                      "totalEfficiency"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "id",
+                  "typeId",
+                  "definitionId",
+                  "definitionVersion",
+                  "label",
+                  "params"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "pattern": "^[-\\w]{1,40}$",
+                    "not": {
+                      "enum": [
+                        "__proto__",
+                        "constructor",
+                        "prototype"
+                      ]
+                    }
+                  },
+                  "typeId": {
+                    "const": "relief"
+                  },
+                  "definitionId": {
+                    "enum": [
+                      "builtin:relief"
+                    ]
+                  },
+                  "definitionVersion": {
+                    "const": 1
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 60
+                  },
+                  "params": {
+                    "type": "object",
+                    "properties": {
+                      "openingDifferentialPa": {
+                        "type": "number",
+                        "minimum": 100000,
+                        "maximum": 70000000,
+                        "title": "开启压差设定",
+                        "x-unit": "Pa",
+                        "x-quantity": "pressure",
+                        "x-legacy-key": "setting"
+                      }
+                    },
+                    "required": [
+                      "openingDifferentialPa"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "id",
+                  "typeId",
+                  "definitionId",
+                  "definitionVersion",
+                  "label",
+                  "params"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "pattern": "^[-\\w]{1,40}$",
+                    "not": {
+                      "enum": [
+                        "__proto__",
+                        "constructor",
+                        "prototype"
+                      ]
+                    }
+                  },
+                  "typeId": {
+                    "const": "valve"
+                  },
+                  "definitionId": {
+                    "enum": [
+                      "builtin:valve-o",
+                      "builtin:valve-m"
+                    ]
+                  },
+                  "definitionVersion": {
+                    "const": 1
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 60
+                  },
+                  "params": {
+                    "type": "object",
+                    "properties": {
+                      "nominalFlowM3PerS": {
+                        "type": "number",
+                        "minimum": 0.0000016666666666666669,
+                        "maximum": 0.05,
+                        "title": "每通道标称流量",
+                        "x-unit": "m³/s",
+                        "x-quantity": "flow",
+                        "x-legacy-key": "nominalFlow"
+                      },
+                      "nominalDropPa": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 10000000,
+                        "title": "标称流量下通道压降",
+                        "x-unit": "Pa",
+                        "x-quantity": "pressure",
+                        "x-legacy-key": "drop"
+                      }
+                    },
+                    "required": [
+                      "nominalFlowM3PerS",
+                      "nominalDropPa"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "id",
+                  "typeId",
+                  "definitionId",
+                  "definitionVersion",
+                  "label",
+                  "params"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "pattern": "^[-\\w]{1,40}$",
+                    "not": {
+                      "enum": [
+                        "__proto__",
+                        "constructor",
+                        "prototype"
+                      ]
+                    }
+                  },
+                  "typeId": {
+                    "const": "cylinder"
+                  },
+                  "definitionId": {
+                    "enum": [
+                      "builtin:cylinder"
+                    ]
+                  },
+                  "definitionVersion": {
+                    "const": 1
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 60
+                  },
+                  "params": {
+                    "type": "object",
+                    "properties": {
+                      "boreM": {
+                        "type": "number",
+                        "minimum": 0.005,
+                        "maximum": 1,
+                        "title": "缸径",
+                        "x-unit": "m",
+                        "x-quantity": "length",
+                        "x-legacy-key": "bore"
+                      },
+                      "rodM": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 0.999,
+                        "title": "杆径",
+                        "x-unit": "m",
+                        "x-quantity": "length",
+                        "x-legacy-key": "rod"
+                      },
+                      "strokeM": {
+                        "type": "number",
+                        "minimum": 0.001,
+                        "maximum": 10,
+                        "title": "行程",
+                        "x-unit": "m",
+                        "x-quantity": "length",
+                        "x-legacy-key": "stroke"
+                      },
+                      "extensionResistanceN": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 10000000,
+                        "title": "伸出阻力负载",
+                        "x-unit": "N",
+                        "x-quantity": "force",
+                        "x-legacy-key": "loadExt"
+                      },
+                      "retractionResistanceN": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 10000000,
+                        "title": "缩回阻力负载",
+                        "x-unit": "N",
+                        "x-quantity": "force",
+                        "x-legacy-key": "loadRet"
+                      },
+                      "mechanicalEfficiency": {
+                        "type": "number",
+                        "minimum": 0.1,
+                        "maximum": 1,
+                        "title": "机械效率",
+                        "x-unit": "1",
+                        "x-quantity": "ratio",
+                        "x-legacy-key": "eta"
+                      }
+                    },
+                    "required": [
+                      "boreM",
+                      "rodM",
+                      "strokeM",
+                      "extensionResistanceN",
+                      "retractionResistanceN",
+                      "mechanicalEfficiency"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "id",
+                  "typeId",
+                  "definitionId",
+                  "definitionVersion",
+                  "label",
+                  "params"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "pattern": "^[-\\w]{1,40}$",
+                    "not": {
+                      "enum": [
+                        "__proto__",
+                        "constructor",
+                        "prototype"
+                      ]
+                    }
+                  },
+                  "typeId": {
+                    "const": "motor"
+                  },
+                  "definitionId": {
+                    "enum": [
+                      "builtin:motor"
+                    ]
+                  },
+                  "definitionVersion": {
+                    "const": 1
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 0,
+                    "maxLength": 60
+                  },
+                  "params": {
+                    "type": "object",
+                    "properties": {
+                      "displacementM3PerRev": {
+                        "type": "number",
+                        "minimum": 1e-7,
+                        "maximum": 0.002,
+                        "title": "排量",
+                        "x-unit": "m³/rev",
+                        "x-quantity": "displacement",
+                        "x-legacy-key": "displacement"
+                      },
+                      "resistanceTorqueNm": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100000,
+                        "title": "双向阻力转矩",
+                        "x-unit": "N·m",
+                        "x-quantity": "torque",
+                        "x-legacy-key": "torque"
+                      },
+                      "volumetricEfficiency": {
+                        "type": "number",
+                        "minimum": 0.1,
+                        "maximum": 1,
+                        "title": "容积效率",
+                        "x-unit": "1",
+                        "x-quantity": "ratio",
+                        "x-legacy-key": "etaV"
+                      },
+                      "mechanicalEfficiency": {
+                        "type": "number",
+                        "minimum": 0.1,
+                        "maximum": 1,
+                        "title": "机械效率",
+                        "x-unit": "1",
+                        "x-quantity": "ratio",
+                        "x-legacy-key": "etaM"
+                      }
+                    },
+                    "required": [
+                      "displacementM3PerRev",
+                      "resistanceTorqueNm",
+                      "volumetricEfficiency",
+                      "mechanicalEfficiency"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "id",
+                  "typeId",
+                  "definitionId",
+                  "definitionVersion",
+                  "label",
+                  "params"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "maxItems": 30
+        },
+        "connections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "pattern": "^[-\\w]{1,40}$",
+                "not": {
+                  "enum": [
+                    "__proto__",
+                    "constructor",
+                    "prototype"
+                  ]
+                }
+              },
+              "from": {
+                "type": "object",
+                "properties": {
+                  "componentId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "pattern": "^[-\\w]{1,40}$",
+                    "not": {
+                      "enum": [
+                        "__proto__",
+                        "constructor",
+                        "prototype"
+                      ]
+                    }
+                  },
+                  "portId": {
+                    "type": "string",
+                    "enum": [
+                      "P",
+                      "T",
+                      "S",
+                      "A",
+                      "B"
+                    ]
+                  }
+                },
+                "required": [
+                  "componentId",
+                  "portId"
+                ],
+                "additionalProperties": false
+              },
+              "to": {
+                "type": "object",
+                "properties": {
+                  "componentId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "pattern": "^[-\\w]{1,40}$",
+                    "not": {
+                      "enum": [
+                        "__proto__",
+                        "constructor",
+                        "prototype"
+                      ]
+                    }
+                  },
+                  "portId": {
+                    "type": "string",
+                    "enum": [
+                      "P",
+                      "T",
+                      "S",
+                      "A",
+                      "B"
+                    ]
+                  }
+                },
+                "required": [
+                  "componentId",
+                  "portId"
+                ],
+                "additionalProperties": false
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "internalDiameterM": {
+                    "type": "number",
+                    "minimum": 0.002,
+                    "maximum": 0.2,
+                    "title": "实际内径",
+                    "x-unit": "m",
+                    "x-quantity": "length",
+                    "x-legacy-key": "diameter"
+                  },
+                  "lengthM": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1000,
+                    "title": "管路长度",
+                    "x-unit": "m",
+                    "x-quantity": "pipeLength",
+                    "x-legacy-key": "length"
+                  },
+                  "roughnessM": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 0.001,
+                    "title": "绝对粗糙度",
+                    "x-unit": "m",
+                    "x-quantity": "length",
+                    "x-legacy-key": "roughness"
+                  },
+                  "localLossCoefficient": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1000,
+                    "title": "局部阻力系数 K",
+                    "x-unit": "1",
+                    "x-quantity": "coefficient",
+                    "x-legacy-key": "K"
+                  }
+                },
+                "required": [
+                  "internalDiameterM",
+                  "lengthM",
+                  "roughnessM",
+                  "localLossCoefficient"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "from",
+              "to",
+              "params"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 60
+        },
+        "initialConditions": {
+          "type": "object",
+          "properties": {
+            "actuators": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "componentId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 40,
+                        "pattern": "^[-\\w]{1,40}$",
+                        "not": {
+                          "enum": [
+                            "__proto__",
+                            "constructor",
+                            "prototype"
+                          ]
+                        }
+                      },
+                      "kind": {
+                        "const": "cylinder"
+                      },
+                      "positionM": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 10
+                      }
+                    },
+                    "required": [
+                      "componentId",
+                      "kind",
+                      "positionM"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "componentId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 40,
+                        "pattern": "^[-\\w]{1,40}$",
+                        "not": {
+                          "enum": [
+                            "__proto__",
+                            "constructor",
+                            "prototype"
+                          ]
+                        }
+                      },
+                      "kind": {
+                        "const": "motor"
+                      },
+                      "angleRad": {
+                        "type": "number",
+                        "minimum": -1000000000,
+                        "maximum": 1000000000
+                      }
+                    },
+                    "required": [
+                      "componentId",
+                      "kind",
+                      "angleRad"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "maxItems": 30
+            },
+            "valves": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "componentId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40,
+                    "pattern": "^[-\\w]{1,40}$",
+                    "not": {
+                      "enum": [
+                        "__proto__",
+                        "constructor",
+                        "prototype"
+                      ]
+                    }
+                  },
+                  "positionId": {
+                    "enum": [
+                      "extend",
+                      "neutral",
+                      "retract"
+                    ]
+                  }
+                },
+                "required": [
+                  "componentId",
+                  "positionId"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 30
+            }
+          },
+          "required": [
+            "actuators",
+            "valves"
+          ],
+          "additionalProperties": false
+        },
+        "embeddedDefinitions": {
+          "type": "array",
+          "maxItems": 0
+        }
+      },
+      "required": [
+        "fluid",
+        "components",
+        "connections",
+        "initialConditions",
+        "embeddedDefinitions"
+      ],
+      "additionalProperties": false
+    },
+    "layout": {
+      "type": "object",
+      "properties": {
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "componentId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "pattern": "^[-\\w]{1,40}$",
+                "not": {
+                  "enum": [
+                    "__proto__",
+                    "constructor",
+                    "prototype"
+                  ]
+                }
+              },
+              "x": {
+                "type": "number",
+                "minimum": -1000000,
+                "maximum": 1000000
+              },
+              "y": {
+                "type": "number",
+                "minimum": -1000000,
+                "maximum": 1000000
+              }
+            },
+            "required": [
+              "componentId",
+              "x",
+              "y"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 30
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "connectionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "pattern": "^[-\\w]{1,40}$",
+                "not": {
+                  "enum": [
+                    "__proto__",
+                    "constructor",
+                    "prototype"
+                  ]
+                }
+              },
+              "mode": {
+                "const": "auto"
+              }
+            },
+            "required": [
+              "connectionId",
+              "mode"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 60
+        }
+      },
+      "required": [
+        "components",
+        "routes"
+      ],
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "createdWithAppVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "\\S"
+        },
+        "preferredSolverId": {
+          "const": "legacy-basic"
+        },
+        "modelVersion": {
+          "const": "1.0.0-experimental"
+        }
+      },
+      "required": [
+        "createdWithAppVersion",
+        "preferredSolverId",
+        "modelVersion"
+      ],
+      "additionalProperties": false
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^metadata\\.[a-z][a-z0-9-]*(\\.[a-z0-9-]+)+$"
+      },
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "format",
+    "version",
+    "projectId",
+    "title",
+    "description",
+    "createdAt",
+    "updatedAt",
+    "design",
+    "layout",
+    "provenance",
+    "extensions"
+  ],
+  "additionalProperties": false,
+  "x-semantic-validation": [
+    "component/connection IDs unique within their namespaces",
+    "endpoint ports belong to referenced components; undirected pairs unique; endpoints distinct",
+    "layout and initial-condition references match design exactly",
+    "rodM < boreM; totalEfficiency <= volumetricEfficiency",
+    "cylinder initial position <= its stroke; UTC timestamps calendar-valid",
+    "finite JSON; no reserved property names; depth <= 32; nodes <= 50000; file bytes <= 2000000"
+  ]
+}

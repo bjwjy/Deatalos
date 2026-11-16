@@ -1,0 +1,83 @@
+/* Accepted V1.3 white presentation; sync with tools/project/v13-white-assets.mjs. */
+:root {
+  --button-glide-fill: linear-gradient(180deg, #eeeeee, #e2e2e2);
+  --button-glide-edge: #a7a7a780;
+  --button-press-tint: #6262621c;
+  --button-press-shadow: #24242425;
+  --action-ack-fill: #b8dec9;
+  --action-ack-ink: #285841;
+}
+:root .menubar .menu-glide,
+:root .quick-toolbar .toolbar-glide,
+:root .quick-toolbar .toolbar-glide[data-dark='true'] {
+  background: var(--button-glide-fill);
+  box-shadow:
+    inset 0 1px 0 #ffffff45,
+    inset 0 0 0 1px var(--button-glide-edge),
+    0 1px 3px #20202010;
+}
+/* Zero specificity keeps fixed/absolute drawer and pagination positioning intact. */
+.action-ack-circle {
+  fill: var(--action-ack-fill);
+}
+.action-ack-check {
+  fill: none;
+  stroke: var(--action-ack-ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset 150ms var(--ease-out);
+}
+#saveProject[data-save-phase='confirmed'] .action-ack-check {
+  stroke-dashoffset: 0;
+}
+:where(button) {
+  position: relative;
+}
+.button-press-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border-radius: inherit;
+  background: var(--button-press-tint);
+  box-shadow:
+    inset 0 1px 3px var(--button-press-shadow),
+    inset 0 0 0 1px var(--button-glide-edge);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms var(--ease-out);
+}
+button[data-press-state='down'] > .button-press-surface {
+  opacity: 1;
+  transition-duration: 55ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .button-press-surface {
+    transition-duration: 1ms !important;
+  }
+}
+@media (forced-colors: active) {
+  button[data-press-state='down'] > .button-press-surface {
+    background: transparent;
+    outline: 1px solid ButtonText;
+    outline-offset: -2px;
+  }
+}
+/* Low relief keys keep a visible face while the shared selection glides beneath. */
+:root .quick-toolbar .tool:not(.primary):not(:disabled) {
+  border: 1px solid #56565619;
+  background: #ffffff38;
+  box-shadow:
+    inset 0 1px 0 #ffffffb3,
+    0 1px 0 #00000012;
+}
+:root .quick-toolbar .tool:not(.primary):is(:hover, :focus-visible) {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+:root .quick-toolbar .tool:not(.primary)[data-press-state='down'] {
+  box-shadow: inset 0 1px 2px var(--button-press-shadow);
+}

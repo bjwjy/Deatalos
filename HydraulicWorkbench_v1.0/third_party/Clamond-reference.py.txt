@@ -1,0 +1,74 @@
+def Clamond(Re: float, eD: float, fast: bool=False) -> float:
+    r"""Calculates Darcy friction factor using a solution accurate to almost
+    machine precision. Recommended very strongly. For details of the algorithm,
+    see [1]_.
+
+    Parameters
+    ----------
+    Re : float
+        Reynolds number, [-]
+    eD : float
+        Relative roughness, [-]
+    fast : bool, optional
+        If true, performs only one iteration, which gives roughly half the
+        number of decimals of accuracy, [-]
+
+    Returns
+    -------
+    fd : float
+        Darcy friction factor [-]
+
+    Notes
+    -----
+    This is a highly optimized function, 4 times faster than the solution using
+    the LambertW function, and faster than many other approximations which are
+    much less accurate.
+
+    The code used here is only slightly modified from that in [1]_, for further
+    performance improvements.
+
+    For 10 < Re < 1E12, and 0 < eD < 0.01, this equation has been confirmed
+    numerically to provide a solution to the Colebrook equation accurate to an
+    rtol of 1E-9 or better - the same level of accuracy as the analytical
+    solution to the Colebrook equation due to floating point precision.
+
+    Comparing this to the numerical solution of the Colebrook equation,
+    identical values are given accurate to an rtol of 1E-9 for 10 < Re < 1E100,
+    and 0 < eD < 1 and beyond.
+
+    However, for values of Re under 10, different answers from the `Colebrook`
+    equation appear and then quickly a ValueError is raised.
+
+    Examples
+    --------
+    >>> Clamond(1E5, 1E-4)
+    0.01851386607747165
+
+    References
+    ----------
+    .. [1] Clamond, Didier. "Efficient Resolution of the Colebrook Equation."
+       Industrial & Engineering Chemistry Research 48, no. 7 (April 1, 2009):
+       3665-71. doi:10.1021/ie801626g.
+       http://math.unice.fr/%7Edidierc/DidPublis/ICR_2009.pdf
+    """
+    X1 = eD*Re*0.1239681863354175460160858261654858382699 # (log(10)/18.574).evalf(40)
+    X2 = log(Re) - 0.7793974884556819406441139701653776731705 # log(log(10)/5.02).evalf(40)
+    F = X2 - 0.2
+    X1F = X1 + F
+    X1F1 = 1. + X1F
+
+    E = (log(X1F) - 0.2)/(X1F1)
+    F = F - (X1F1 + 0.5*E)*E*(X1F)/(X1F1 + E*(1. + (1.0/3.0)*E))
+
+    if not fast:
+        X1F = X1 + F
+        X1F1 = 1. + X1F
+        E = (log(X1F) + F - X2)/(X1F1)
+
+        b = (X1F1 + E*(1. + 1.0/3.0*E))
+        F = b/(b*F - ((X1F1 + 0.5*E)*E*(X1F)))
+        return 1.325474527619599502640416597148504422899*(F*F) # ((0.5*log(10))**2).evalf(40)
+
+    return 1.325474527619599502640416597148504422899/(F*F) # ((0.5*log(10))**2).evalf(40)
+
+

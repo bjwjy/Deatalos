@@ -1,0 +1,11 @@
+node_modules/
+artifacts/
+dist/
+*.tsbuildinfo
+*.log
+.env
+.env.*
+*.exe
+*.dll
+*.zip
+*.lnk

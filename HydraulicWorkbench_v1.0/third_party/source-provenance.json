@@ -1,0 +1,8 @@
+{
+  "upstream": "https://github.com/CalebBell/fluids",
+  "sourcePath": "fluids/friction.py",
+  "blobSha": "bacb16375e5b531c47896c2376af1b6c058af896",
+  "licenseBlobSha": "937d253e137cdf2e0e7cd1ddf452f80fd94a76ac",
+  "retrieved": "2026-10-15",
+  "use": "Clamond Darcy friction factor; JavaScript port in src/friction.js. No other project code incorporated."
+}

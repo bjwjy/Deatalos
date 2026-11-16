@@ -1,0 +1,650 @@
+:root .v13-dialog button.teaching-entry[aria-haspopup='dialog'],
+#componentTeachingDialog .teaching-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid color-mix(in srgb, #2e888a 32%, var(--dialog-line));
+  background: color-mix(in srgb, #2e888a 9%, var(--dialog-paper));
+  color: color-mix(in srgb, #2e888a 47%, var(--dialog-ink));
+  font-weight: 620;
+  white-space: nowrap;
+  box-shadow: none;
+  transform: none;
+}
+:root .v13-dialog button.teaching-entry[aria-haspopup='dialog']:hover:enabled,
+#componentTeachingDialog .teaching-control:hover:enabled {
+  border-color: color-mix(in srgb, #2e888a 55%, var(--dialog-line));
+  background: color-mix(in srgb, #2e888a 17%, var(--dialog-paper));
+}
+.v13-dialog .teaching-entry:focus-visible,
+#componentTeachingDialog .teaching-control:focus-visible {
+  outline: 2px solid #2e888a;
+  outline-offset: 2px;
+}
+.v13-dialog .teaching-entry {
+  flex: none;
+  margin-inline-start: auto;
+  min-height: 34px;
+  padding: 5px 10px;
+  border-radius: 9px;
+}
+.v13-dialog .teaching-entry .icon {
+  width: 16px;
+  height: 16px;
+  color: inherit;
+}
+#componentTeachingDialog {
+  --teaching-ink: color-mix(in srgb, #293f56 65%, var(--dialog-ink));
+  --teaching-supply: #b7512d;
+  --teaching-return: #30759a;
+  width: min(1040px, calc(100vw - 32px));
+  height: min(465px, calc(100dvh - 32px));
+  max-height: none;
+  transform: none;
+  transition: opacity 160ms ease-out;
+}
+:root[data-palette='coral'] #componentTeachingDialog {
+  --teaching-ink: var(--dialog-ink);
+  --teaching-supply: #eb9d79;
+  --teaching-return: #84bbdf;
+}
+#componentTeachingDialog .v13-dialog-header {
+  cursor: default;
+}
+#componentTeachingDialog .v13-dialog-heading-icon {
+  flex: none;
+}
+#componentTeachingDialog .dialog-close {
+  transform: none;
+}
+#componentTeachingTitle small {
+  display: block;
+  color: var(--dialog-muted);
+  font-size: 12px;
+  font-weight: 450;
+}
+#componentTeachingDialog .teaching-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(218px, 258px);
+  gap: 18px;
+  flex: 1;
+  padding: 18px 22px;
+}
+.teaching-stage {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  border: 1px solid var(--dialog-line);
+  border-radius: 12px;
+  background: radial-gradient(circle, var(--dialog-line) 1px, transparent 1.25px) 0 0 / 17px 17px
+    color-mix(in srgb, #88aab7 6%, var(--dialog-paper));
+}
+.teaching-stage-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px 0;
+  color: var(--dialog-muted);
+  font-size: 12px;
+}
+.teaching-stage-heading [role='status'] {
+  border-radius: 6px;
+  padding: 2px 8px;
+  background: color-mix(in srgb, #2e888a 12%, var(--dialog-paper));
+  color: var(--teaching-ink);
+  font-weight: 600;
+  text-align: right;
+}
+.teaching-diagram {
+  width: 100%;
+  height: 100%;
+  display: block;
+  color: var(--teaching-ink);
+}
+.teaching-diagram text {
+  fill: currentColor;
+  font-size: 15px;
+  font-weight: 550;
+}
+.teaching-diagram .muted-label {
+  font-size: 13px;
+  font-weight: 450;
+}
+.teaching-diagram .wire {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.teaching-diagram .supply {
+  stroke: var(--teaching-supply);
+}
+.teaching-diagram .return {
+  stroke: var(--teaching-return);
+}
+.teaching-diagram .measure {
+  stroke: #71838a;
+}
+.teaching-diagram .arrow {
+  stroke-width: 2.8;
+}
+.teaching-diagram .teaching-node {
+  fill: currentColor;
+}
+.teaching-diagram .flow-motion {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.5;
+  stroke-dasharray: 3 13;
+  stroke-linecap: round;
+  animation: teaching-flow 0.68s linear infinite;
+}
+.teaching-diagram .flow-motion.slow {
+  animation-duration: 1.35s;
+}
+.teaching-diagram .stop-mark {
+  fill: none;
+  stroke: var(--teaching-supply);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.teaching-diagram .gauge-face {
+  fill: var(--dialog-paper);
+}
+.teaching-diagram .gauge-needle {
+  transform-origin: 291px 86px;
+  transition: transform 0.35s ease-out;
+}
+.teaching-cylinder-shell,
+.teaching-valve-cell,
+.teaching-piston-metal {
+  fill: var(--dialog-paper);
+  stroke: currentColor;
+  stroke-width: 2;
+}
+.teaching-valve-cell.is-active {
+  fill: color-mix(in srgb, #2e888a 18%, var(--dialog-paper));
+}
+.teaching-reservoir-body {
+  fill: color-mix(in srgb, #629cba 27%, var(--dialog-paper));
+  stroke: currentColor;
+  stroke-width: 2;
+}
+.teaching-storage[data-charge='in'] {
+  --liquid-from: 1;
+  --liquid-to: 0.78;
+  --gas-from: 1;
+  --gas-to: 0.57;
+}
+.teaching-storage[data-charge='out'] {
+  --liquid-from: 0.78;
+  --liquid-to: 1;
+  --gas-from: 0.57;
+  --gas-to: 1;
+}
+.teaching-storage .flow-motion {
+  animation: teaching-storage-flow 1.45s linear both;
+}
+.teaching-liquid-dots {
+  fill: var(--teaching-return);
+  transform-origin: 290px 121px;
+  transform: scale(var(--liquid-to));
+  animation: teaching-liquid-compress 1.25s ease-in-out both;
+}
+.teaching-gas-bladder {
+  fill: color-mix(in srgb, #e1b36b 34%, var(--dialog-paper));
+  stroke: currentColor;
+  stroke-width: 1.8;
+  transform-origin: 290px 76px;
+  transform: scaleY(var(--gas-to));
+  animation: teaching-bladder-compress 1.25s ease-in-out both;
+}
+.teaching-pressure-rise {
+  animation: teaching-pressure-rise 0.55s ease-out both;
+}
+.teaching-diagram .wire:is(.teaching-pilot-feed, .teaching-pilot-return, .teaching-pilot-idle, .teaching-sense-active) {
+  stroke-width: 1.8;
+  stroke-dasharray: 4 4;
+}
+.teaching-diagram .teaching-pilot-feed {
+  stroke: var(--teaching-supply);
+}
+.teaching-diagram .teaching-pilot-return {
+  stroke: var(--teaching-return);
+}
+.teaching-diagram .teaching-pilot-idle {
+  stroke: #71838a;
+}
+.teaching-diagram .teaching-pilot-motion {
+  stroke: #54b0ad;
+}
+.teaching-diagram .teaching-sense-active {
+  stroke: color-mix(in srgb, #2e888a 75%, var(--teaching-ink));
+  animation: teaching-sense-highlight 0.55s ease-out both;
+}
+.teaching-pilot-pin[data-pilot='on'] {
+  transform: translateY(-8px);
+  animation: teaching-pilot-lift 0.48s ease-out both;
+}
+.teaching-lock-travel[data-travel='extend'] {
+  transform: translateX(38px);
+  animation: teaching-lock-extend 1.15s ease-in-out both;
+}
+.teaching-lock-travel[data-travel='retract'] {
+  animation: teaching-lock-retract 1.15s ease-in-out both;
+}
+.teaching-load-travel[data-lowering='true'] {
+  transform: translateY(27px);
+  animation: teaching-load-lower 1.45s ease-in-out both;
+}
+@keyframes teaching-sense-highlight {
+  from {
+    opacity: 0.45;
+  }
+}
+@keyframes teaching-pilot-lift {
+  from {
+    transform: none;
+  }
+}
+@keyframes teaching-lock-extend {
+  from {
+    transform: none;
+  }
+}
+@keyframes teaching-lock-retract {
+  from {
+    transform: translateX(38px);
+  }
+}
+@keyframes teaching-load-lower {
+  from {
+    transform: none;
+  }
+}
+@keyframes teaching-storage-flow {
+  80% {
+    opacity: 1;
+  }
+  to {
+    stroke-dashoffset: -32;
+    opacity: 0;
+  }
+}
+@keyframes teaching-liquid-compress {
+  from {
+    transform: scale(var(--liquid-from));
+  }
+}
+@keyframes teaching-bladder-compress {
+  from {
+    transform: scaleY(var(--gas-from));
+  }
+}
+@keyframes teaching-pressure-rise {
+  from {
+    transform: translateY(7px);
+    opacity: 0.78;
+  }
+}
+.teaching-actuator[data-stroke='extend'] {
+  --piston-from: 166px;
+  --piston-to: 300px;
+  --spring-from: 1;
+  --spring-to: 0.25;
+}
+.teaching-actuator[data-stroke='retract'] {
+  --piston-from: 300px;
+  --piston-to: 166px;
+  --spring-from: 0.25;
+  --spring-to: 1;
+}
+.teaching-piston {
+  transform: translateX(var(--piston-to));
+  animation: teaching-stroke 1.55s ease-in-out both;
+}
+.teaching-cushion-zone {
+  fill: color-mix(in srgb, var(--teaching-return) 6%, var(--dialog-paper));
+}
+.teaching-cushion-zone.is-active {
+  fill: color-mix(in srgb, var(--teaching-return) 24%, var(--dialog-paper));
+}
+.teaching-cushioned[data-stroke='extend'] {
+  --cushion-from: 238px;
+  --cushion-entry: 325px;
+  --cushion-to: 350px;
+}
+.teaching-cushioned[data-stroke='retract'] {
+  --cushion-from: 350px;
+  --cushion-entry: 263px;
+  --cushion-to: 238px;
+}
+.teaching-cushion-piston {
+  transform: translateX(var(--cushion-to));
+  animation: teaching-cushioned-stroke 1.9s linear both;
+}
+.teaching-swing-arm {
+  transform-origin: 290px 120px;
+  transform: rotate(var(--swing-to));
+  animation: teaching-limited-swing 1.4s ease-in-out both;
+}
+.teaching-swing-arm[data-swing='clockwise'] {
+  --swing-from: -45deg;
+  --swing-to: 45deg;
+}
+.teaching-swing-arm[data-swing='counterclockwise'] {
+  --swing-from: 45deg;
+  --swing-to: -45deg;
+}
+.teaching-diagram .teaching-swing-pointer {
+  stroke-width: 4;
+}
+.teaching-correction-piston[data-correcting='true'] {
+  transform: translateY(-16px);
+  animation: teaching-end-correction 1.35s ease-out both;
+}
+.teaching-boost-piston[data-boost='true'] {
+  transform: translateY(-12px);
+  animation: teaching-boost-stroke 0.9s ease-out both;
+}
+.teaching-shuttle-ball[data-source='a'] {
+  transform: translateX(24px);
+  animation: teaching-shuttle-right 0.38s ease-out both;
+}
+.teaching-shuttle-ball[data-source='b'] {
+  transform: translateX(-24px);
+  animation: teaching-shuttle-left 0.38s ease-out both;
+}
+@keyframes teaching-shuttle-right {
+  from {
+    transform: translateX(-24px);
+  }
+}
+@keyframes teaching-shuttle-left {
+  from {
+    transform: translateX(24px);
+  }
+}
+.teaching-and-gate[data-enabled='true'] {
+  animation: teaching-sense-highlight 0.48s ease-out both;
+}
+.teaching-diagram
+  .wire:is(.teaching-signal-on, .teaching-signal-off, .teaching-signal-analog, .teaching-controller-command) {
+  stroke-width: 1.7;
+  stroke-dasharray: 6 4 1 4;
+}
+.teaching-diagram .teaching-signal-on {
+  stroke: #319455;
+}
+.teaching-diagram .teaching-signal-off {
+  stroke: #ba4d4d;
+}
+.teaching-diagram .teaching-signal-analog {
+  stroke: url(#teaching-demo-analog-signal);
+}
+.teaching-diagram .teaching-controller-command {
+  stroke: #328b93;
+  animation: teaching-controller-command 0.95s linear;
+}
+.teaching-switch-contact {
+  transform-origin: 243px 123px;
+}
+.teaching-switch-contact[data-closed='false'] {
+  transform: rotate(-22deg);
+}
+.teaching-switch-contact[data-transition='open'] {
+  animation: teaching-contact-open 0.32s ease-out both;
+}
+.teaching-switch-contact[data-transition='close'] {
+  animation: teaching-contact-close 0.32s ease-out both;
+}
+.teaching-analog-point {
+  fill: #368e86;
+  stroke: var(--dialog-paper);
+  stroke-width: 1.5;
+  animation: teaching-sense-highlight 0.42s ease-out both;
+}
+.teaching-diagram .teaching-displacement-marker {
+  stroke: var(--teaching-return);
+  transform-origin: 290px 130px;
+}
+.teaching-displacement-marker[data-high='true'] {
+  animation: teaching-displacement-increase 0.45s ease-out both;
+}
+.teaching-displacement-marker[data-high='false'] {
+  transform: rotate(18deg);
+}
+.teaching-control-rotor {
+  transform-origin: 392px 128px;
+  animation: teaching-rotation 1.2s linear infinite;
+}
+.teaching-control-rotor[data-displacement='10'] {
+  animation-duration: 0.8s;
+}
+.teaching-control-rotor[data-displacement='20'] {
+  animation-duration: 1.6s;
+}
+.teaching-controller-piston[data-phase='condition'] {
+  transform: translateX(44px);
+}
+.teaching-controller-piston[data-phase='extend'] {
+  animation: teaching-controller-extend 1.7s ease-out both;
+}
+.teaching-controller-piston[data-phase='retract'] {
+  animation: teaching-controller-retract 1.7s ease-out both;
+}
+.teaching-controller-rig .flow-motion {
+  animation: teaching-storage-flow 1.7s linear both;
+}
+@keyframes teaching-controller-command {
+  to {
+    stroke-dashoffset: -15;
+  }
+}
+@keyframes teaching-contact-open {
+  from {
+    transform: none;
+  }
+}
+@keyframes teaching-contact-close {
+  from {
+    transform: rotate(-22deg);
+  }
+}
+@keyframes teaching-displacement-increase {
+  from {
+    transform: rotate(18deg);
+  }
+}
+@keyframes teaching-controller-extend {
+  to {
+    transform: translateX(44px);
+  }
+}
+@keyframes teaching-controller-retract {
+  from {
+    transform: translateX(44px);
+  }
+}
+@keyframes teaching-cushioned-stroke {
+  from {
+    transform: translateX(var(--cushion-from));
+  }
+  55% {
+    transform: translateX(var(--cushion-entry));
+  }
+}
+@keyframes teaching-limited-swing {
+  from {
+    transform: rotate(var(--swing-from));
+  }
+}
+@keyframes teaching-end-correction {
+  from {
+    transform: none;
+  }
+}
+@keyframes teaching-boost-stroke {
+  from {
+    transform: none;
+  }
+}
+.teaching-spring {
+  transform: scaleX(var(--spring-to));
+  animation: teaching-spring 1.55s ease-in-out both;
+}
+.teaching-rotor {
+  transform-origin: 290px 213px;
+  animation: teaching-rotation 1.15s linear infinite;
+}
+.teaching-rotor.is-reversed {
+  animation-direction: reverse;
+}
+[data-teaching-stroke='ready'] .teaching-actuator .flow-motion {
+  display: none;
+}
+@keyframes teaching-stroke {
+  from {
+    transform: translateX(var(--piston-from));
+  }
+  to {
+    transform: translateX(var(--piston-to));
+  }
+}
+@keyframes teaching-spring {
+  from {
+    transform: scaleX(var(--spring-from));
+  }
+  to {
+    transform: scaleX(var(--spring-to));
+  }
+}
+@keyframes teaching-rotation {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@keyframes teaching-flow {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+.teaching-notes {
+  align-self: start;
+  color: var(--dialog-ink);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.teaching-notes h3 {
+  margin: 0 0 5px;
+  font-size: 16px;
+}
+.teaching-notes p {
+  margin: 0;
+}
+.teaching-notes [data-teaching-summary] {
+  min-height: 4.5em;
+}
+#componentTeachingDialog .teaching-control {
+  position: relative;
+  width: 100%;
+  min-height: 38px;
+  margin-top: 7px;
+  border-radius: 9px;
+}
+#componentTeachingDialog .teaching-control[aria-disabled='true'] {
+  opacity: 0.72;
+  cursor: default;
+}
+#componentTeachingDialog[data-teaching-stroke='ready'] .teaching-control::after {
+  position: absolute;
+  inset-inline-end: 12px;
+  content: '←';
+  color: var(--teaching-ink);
+  font-size: 19px;
+  line-height: 1;
+  pointer-events: none;
+}
+.teaching-notes dl {
+  margin: 12px 0;
+  padding: 2px 10px;
+  border-radius: 9px;
+  background: var(--dialog-soft);
+  font-size: 13px;
+}
+.teaching-notes dl div {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 8px;
+  padding: 5px 0;
+}
+.teaching-notes dl div + div {
+  border-top: 1px solid var(--dialog-line);
+}
+.teaching-notes dt {
+  font-weight: 650;
+}
+.teaching-notes dd {
+  margin: 0;
+}
+.teaching-notes .teaching-observation {
+  padding-left: 9px;
+  border-left: 2px solid color-mix(in srgb, #2e888a 46%, var(--dialog-line));
+}
+@media (max-width: 720px) {
+  #componentTeachingDialog {
+    height: min(580px, calc(100dvh - 24px));
+  }
+  #componentTeachingDialog .teaching-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(165px, 1fr) auto;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+  .teaching-notes [data-teaching-summary] {
+    min-height: 3em;
+  }
+  .teaching-notes .teaching-observation {
+    min-height: 3em;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .teaching-diagram .flow-motion {
+    display: none;
+  }
+  .teaching-diagram .gauge-needle {
+    transition: none;
+  }
+  .teaching-piston,
+  .teaching-cushion-piston,
+  .teaching-swing-arm,
+  .teaching-correction-piston[data-correcting='true'],
+  .teaching-boost-piston[data-boost='true'],
+  .teaching-spring,
+  .teaching-rotor,
+  .teaching-liquid-dots,
+  .teaching-gas-bladder,
+  .teaching-pressure-rise,
+  .teaching-diagram .teaching-sense-active,
+  .teaching-pilot-pin[data-pilot='on'],
+  .teaching-lock-travel:is([data-travel='extend'], [data-travel='retract']),
+  .teaching-load-travel[data-lowering='true'] {
+    animation: none;
+  }
+  .teaching-shuttle-ball[data-source],
+  .teaching-and-gate[data-enabled='true'],
+  .teaching-switch-contact[data-transition],
+  .teaching-analog-point,
+  .teaching-displacement-marker[data-high='true'],
+  .teaching-control-rotor,
+  .teaching-controller-piston[data-phase],
+  .teaching-diagram .teaching-controller-command {
+    animation: none;
+  }
+  .teaching-controller-piston[data-phase='extend'] {
+    transform: translateX(44px);
+  }
+}

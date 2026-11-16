@@ -1,0 +1,32 @@
+{
+  "name": "hydraulic-workbench-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=24 <25",
+    "npm": ">=11 <12"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "node tools/build/build.mjs --no-native",
+    "build:model": "node tools/build/build-model.mjs",
+    "check:architecture": "node tools/build/check-source-quality.mjs",
+    "check:integration": "node tools/build/check-network-integration.mjs",
+    "test": "npm run build && node --test tests/model/*.test.mjs HydraulicWorkbench_v1.0/tests/engine.test.js",
+    "start:advanced": "node tools/build/start.mjs --advanced",
+    "start:teaching": "node tools/build/start.mjs --teaching"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "ajv": "8.20.0",
+    "electron": "44.7.2",
+    "electron-builder": "26.15.3",
+    "playwright": "1.64.1",
+    "prettier": "3.9.10",
+    "typescript": "7.0.2"
+  }
+}

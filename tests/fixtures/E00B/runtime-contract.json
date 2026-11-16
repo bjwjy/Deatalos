@@ -1,0 +1,118 @@
+{
+  "identity": {
+    "documentSessionId": "doc-one",
+    "physicsRevision": 0,
+    "simulationSessionId": "run-one",
+    "tick": 1,
+    "timeS": 0.01,
+    "controlSequence": 1,
+    "requestSequence": 1
+  },
+  "clock": {
+    "advanceIntervalS": 0.01,
+    "nativeStepS": 0.0001
+  },
+  "solver": {
+    "id": "hopsan",
+    "version": "2.24.4.20260918.1254",
+    "modelSetVersion": "0.1.0"
+  },
+  "source": "kernel",
+  "initialization": "transient",
+  "appliedControls": [
+    {
+      "componentId": "valve1",
+      "kind": "position",
+      "positionId": "extend"
+    },
+    {
+      "componentId": "valve2",
+      "kind": "position",
+      "positionId": "retract"
+    },
+    {
+      "componentId": "throttle",
+      "kind": "opening-area",
+      "areaM2": 0.000002
+    }
+  ],
+  "diagnostics": [],
+  "states": [
+    {
+      "componentId": "valve1",
+      "kind": "valve",
+      "effectivePositionId": "extend",
+      "spoolPositionM": 0.0003
+    },
+    {
+      "componentId": "valve2",
+      "kind": "valve",
+      "effectivePositionId": null,
+      "spoolPositionM": -0.0001
+    },
+    {
+      "componentId": "cylinder1",
+      "kind": "cylinder",
+      "positionM": 0.101,
+      "velocityMPerS": 0.1
+    },
+    {
+      "componentId": "cylinder2",
+      "kind": "cylinder",
+      "positionM": 0.199,
+      "velocityMPerS": -0.1
+    }
+  ],
+  "readings": [
+    {
+      "location": {
+        "kind": "port",
+        "componentId": "valve1",
+        "portId": "A"
+      },
+      "quantity": "pressure",
+      "unit": "Pa",
+      "value": {
+        "kind": "known",
+        "value": 0
+      }
+    },
+    {
+      "location": {
+        "kind": "port",
+        "componentId": "valve2",
+        "portId": "B"
+      },
+      "quantity": "pressure",
+      "unit": "Pa",
+      "value": {
+        "kind": "unknown",
+        "reason": "TEST_NOT_MEASURED"
+      }
+    },
+    {
+      "location": {
+        "kind": "node",
+        "nodeId": "branch"
+      },
+      "quantity": "pressure",
+      "unit": "Pa",
+      "value": {
+        "kind": "unknown",
+        "reason": "GRAPH_MAPPING_UNVERIFIED"
+      }
+    },
+    {
+      "location": {
+        "kind": "connection",
+        "connectionId": "supply"
+      },
+      "quantity": "flow",
+      "unit": "m³/s",
+      "value": {
+        "kind": "known",
+        "value": -0.0001
+      }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "format": "HydraulicWorkbench",
+  "version": 1,
+  "name": "空白草稿",
+  "fluid": {
+    "density": 870,
+    "viscosity": 46
+  },
+  "components": [],
+  "wires": []
+}
