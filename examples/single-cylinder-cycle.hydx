@@ -1,0 +1,441 @@
+{
+  "format": "HydraulicWorkbench",
+  "version": 3,
+  "projectId": "controller-beginner-e12s11",
+  "title": "动态控制器入门：单缸前进、停留、退回",
+  "description": "一个阀对应一个动态控制器；直接点顶部运行，前进2秒、停留1秒、退回2秒、中位结束1秒。",
+  "note": "双击动态控制器查看4个动作。顶部运行自动激活，暂停后点运行继续；复位回到初态。小表盘可单击添加压力探针，或按住150毫秒后拖出；探针单击选中后Delete删除。工具栏T可放置文本，双击修改。此例按时间换向，不保证回到精确起点。",
+  "createdAt": "2026-10-30T00:00:00.000Z",
+  "updatedAt": "2026-10-30T00:00:00.000Z",
+  "design": {
+    "components": [
+      {
+        "id": "tank",
+        "typeId": "tank",
+        "definition": {
+          "id": "teaching:tank",
+          "version": 1
+        },
+        "model": {
+          "id": "teaching:tank",
+          "version": "0.2.0"
+        },
+        "label": "油箱",
+        "parameters": {
+          "hydraulic": {
+            "pressurePa": 100000
+          }
+        }
+      },
+      {
+        "id": "pump",
+        "typeId": "pump",
+        "definition": {
+          "id": "teaching:pump",
+          "version": 2
+        },
+        "model": {
+          "id": "teaching:pump",
+          "version": "0.3.0"
+        },
+        "label": "液压泵",
+        "parameters": {
+          "hydraulic": {
+            "displacementM3PerRev": 0.0000016,
+            "leakageM3PerSPa": 0
+          },
+          "drive": {
+            "angularSpeedRadPerS": 138.23007675795088
+          },
+          "storage": {
+            "portVolumeM3": 0.0001,
+            "initialPressurePa": 100000
+          }
+        }
+      },
+      {
+        "id": "relief",
+        "typeId": "relief",
+        "definition": {
+          "id": "teaching:relief",
+          "version": 1
+        },
+        "model": {
+          "id": "teaching:relief",
+          "version": "0.2.0"
+        },
+        "label": "溢流阀",
+        "parameters": {
+          "hydraulic": {
+            "settingDifferentialPa": 5000000,
+            "maximumAreaM2": 0.00001,
+            "flowCoefficient": 0.67
+          }
+        }
+      },
+      {
+        "id": "valve",
+        "typeId": "valve",
+        "definition": {
+          "id": "teaching:valve-o",
+          "version": 1
+        },
+        "model": {
+          "id": "teaching:valve-o",
+          "version": "0.1.0"
+        },
+        "label": "V1 换向阀",
+        "parameters": {
+          "spool": {
+            "commandTravelM": 0.0003,
+            "maximumTravelM": 0.01,
+            "diameterM": 0.01,
+            "overlapM": 0.00001,
+            "frequencyRadPerS": 100,
+            "dampingRatio": 1
+          },
+          "hydraulic": {
+            "flowCoefficient": 0.67
+          }
+        }
+      },
+      {
+        "id": "actuator",
+        "typeId": "cylinder",
+        "definition": {
+          "id": "teaching:cylinder",
+          "version": 1
+        },
+        "model": {
+          "id": "teaching:cylinder",
+          "version": "0.1.0"
+        },
+        "label": "C1 液压缸",
+        "parameters": {
+          "geometry": {
+            "capAreaM2": 0.00020106192982974675,
+            "rodSideAreaM2": 0.00012252211349000192,
+            "strokeM": 0.2,
+            "capDeadVolumeM3": 0.0003,
+            "rodDeadVolumeM3": 0.0003
+          },
+          "mechanics": {
+            "massKg": 0.3,
+            "loadDampingNsPerM": 20000,
+            "pistonDampingNsPerM": 215,
+            "externalForceN": 0
+          },
+          "hydraulic": {
+            "internalLeakageM3PerSPa": 0
+          }
+        }
+      },
+      {
+        "id": "controller1",
+        "typeId": "dynamic-controller",
+        "definition": {
+          "id": "teaching:dynamic-controller",
+          "version": 1
+        },
+        "model": {
+          "id": "application:dynamic-controller",
+          "version": "1.0.0"
+        },
+        "label": "动态控制器（双击我）",
+        "controller": {
+          "version": 1,
+          "cycles": 1,
+          "steps": [
+            {
+              "id": "forward",
+              "name": "① 前进 2 秒",
+              "commands": [
+                {
+                  "componentId": "valve",
+                  "kind": "position",
+                  "positionId": "extend"
+                }
+              ],
+              "until": {
+                "kind": "time",
+                "durationS": 2
+              },
+              "timeoutS": 5
+            },
+            {
+              "id": "dwell",
+              "name": "② 停留 1 秒",
+              "commands": [
+                {
+                  "componentId": "valve",
+                  "kind": "position",
+                  "positionId": "neutral"
+                }
+              ],
+              "until": {
+                "kind": "time",
+                "durationS": 1
+              },
+              "timeoutS": 4
+            },
+            {
+              "id": "return",
+              "name": "③ 退回 2 秒",
+              "commands": [
+                {
+                  "componentId": "valve",
+                  "kind": "position",
+                  "positionId": "retract"
+                }
+              ],
+              "until": {
+                "kind": "time",
+                "durationS": 2
+              },
+              "timeoutS": 5
+            },
+            {
+              "id": "finish",
+              "name": "④ 中位结束 1 秒",
+              "commands": [
+                {
+                  "componentId": "valve",
+                  "kind": "position",
+                  "positionId": "neutral"
+                }
+              ],
+              "until": {
+                "kind": "time",
+                "durationS": 1
+              },
+              "timeoutS": 4
+            }
+          ]
+        },
+        "parameters": {}
+      }
+    ],
+    "nodes": [
+      {
+        "id": "supply",
+        "kind": "ideal-hydraulic",
+        "label": "供油分支"
+      }
+    ],
+    "connections": [
+      {
+        "id": "suction",
+        "from": {
+          "kind": "port",
+          "componentId": "tank",
+          "portId": "T"
+        },
+        "to": {
+          "kind": "port",
+          "componentId": "pump",
+          "portId": "S"
+        },
+        "kind": "ideal"
+      },
+      {
+        "id": "delivery",
+        "from": {
+          "kind": "port",
+          "componentId": "pump",
+          "portId": "P"
+        },
+        "to": {
+          "kind": "node",
+          "nodeId": "supply"
+        },
+        "kind": "ideal"
+      },
+      {
+        "id": "safety",
+        "from": {
+          "kind": "node",
+          "nodeId": "supply"
+        },
+        "to": {
+          "kind": "port",
+          "componentId": "relief",
+          "portId": "P"
+        },
+        "kind": "ideal"
+      },
+      {
+        "id": "drain",
+        "from": {
+          "kind": "port",
+          "componentId": "relief",
+          "portId": "T"
+        },
+        "to": {
+          "kind": "port",
+          "componentId": "tank",
+          "portId": "T"
+        },
+        "kind": "ideal"
+      },
+      {
+        "id": "supply",
+        "from": {
+          "kind": "node",
+          "nodeId": "supply"
+        },
+        "to": {
+          "kind": "port",
+          "componentId": "valve",
+          "portId": "P"
+        },
+        "kind": "ideal"
+      },
+      {
+        "id": "return",
+        "from": {
+          "kind": "port",
+          "componentId": "valve",
+          "portId": "T"
+        },
+        "to": {
+          "kind": "port",
+          "componentId": "tank",
+          "portId": "T"
+        },
+        "kind": "ideal"
+      },
+      {
+        "id": "working-a",
+        "from": {
+          "kind": "port",
+          "componentId": "valve",
+          "portId": "A"
+        },
+        "to": {
+          "kind": "port",
+          "componentId": "actuator",
+          "portId": "A"
+        },
+        "kind": "ideal"
+      },
+      {
+        "id": "working-b",
+        "from": {
+          "kind": "port",
+          "componentId": "valve",
+          "portId": "B"
+        },
+        "to": {
+          "kind": "port",
+          "componentId": "actuator",
+          "portId": "B"
+        },
+        "kind": "ideal"
+      }
+    ],
+    "initialConditions": [
+      {
+        "componentId": "valve",
+        "kind": "valve",
+        "positionId": "neutral"
+      },
+      {
+        "componentId": "actuator",
+        "kind": "cylinder",
+        "positionM": 0.05,
+        "velocityMPerS": 0,
+        "capPressurePa": 100000,
+        "rodPressurePa": 100000
+      }
+    ],
+    "fluid": {
+      "densityKgPerM3": 870,
+      "kinematicViscosityM2PerS": 0.000046,
+      "bulkModulusPa": 1000000000
+    },
+    "pressureReference": {
+      "kind": "kernel-numeric",
+      "absoluteReferencePa": null
+    }
+  },
+  "layout": {
+    "components": [
+      {
+        "componentId": "tank",
+        "x": 613,
+        "y": 639
+      },
+      {
+        "componentId": "pump",
+        "x": 495,
+        "y": 611
+      },
+      {
+        "componentId": "relief",
+        "x": 347,
+        "y": 605
+      },
+      {
+        "componentId": "valve",
+        "x": 460,
+        "y": 399
+      },
+      {
+        "componentId": "actuator",
+        "x": 480,
+        "y": 200
+      },
+      {
+        "componentId": "controller1",
+        "x": 913,
+        "y": 399
+      }
+    ],
+    "nodes": [
+      {
+        "nodeId": "supply",
+        "x": 444,
+        "y": 532
+      }
+    ],
+    "routes": [
+      {
+        "connectionId": "suction",
+        "mode": "avoid"
+      },
+      {
+        "connectionId": "delivery",
+        "mode": "avoid"
+      },
+      {
+        "connectionId": "safety",
+        "mode": "avoid"
+      },
+      {
+        "connectionId": "drain",
+        "mode": "avoid"
+      },
+      {
+        "connectionId": "supply",
+        "mode": "avoid"
+      },
+      {
+        "connectionId": "return",
+        "mode": "avoid"
+      },
+      {
+        "connectionId": "working-a",
+        "mode": "avoid"
+      },
+      {
+        "connectionId": "working-b",
+        "mode": "avoid"
+      }
+    ]
+  },
+  "provenance": {
+    "createdWithAppVersion": "E04A",
+    "preferredSolverId": "hopsan"
+  },
+  "extensions": {}
+}

@@ -9,6 +9,7 @@
 <p align="center">
   <a href="https://github.com/bjwjy/Deatalos/releases/download/v1.4.0-rc.1/Deatalos-1.4.0-rc.1-x64-Setup.exe"><strong>下载 V1.4 Windows x64 安装包 · Download Windows Installer</strong></a>
   · <a href="https://github.com/bjwjy/Deatalos/releases/tag/v1.4.0-rc.1">发布说明 · Release notes</a>
+  · <a href="#quickstart">跑一个示例 · Try an example</a>
   · <a href="#从源码运行">从源码运行</a>
   · <a href="#english">English</a>
 </p>
@@ -18,6 +19,21 @@
 **V1.4 (1.4.0-rc.1)** is available as an offline Windows x64 installer (about 114 MB). Download and run `Setup.exe` to install.
 
 Deatalos 把原理图绘制、油路诊断、瞬态仿真、工况计算和工程出图放在同一个 Windows 工作台。它面向液压教学、回路设计和工程初算，适合从泵、阀、缸和马达搭起回路，再用曲线和计算结果检查设计。
+
+![Deatalos V1.4 实际运行画面：左侧是单缸液压回路，右侧是完成状态和液压缸位移曲线 / Actual V1.4 workbench showing the circuit and cylinder displacement curve](docs/images/deatalos-v14-workbench.png)
+
+<a id="quickstart"></a>
+
+## 跑一个示例 · Try a circuit
+
+**单缸自动往返 · Automatic single-cylinder cycle**。定量泵从油箱供油，溢流阀限压，V1 换向阀切换液压缸的伸出和回程。控制器的四步动作已经配好，打开工程就可以运行。
+
+1. 安装并打开 Deatalos。打开[示例工程文件](examples/single-cylinder-cycle.hydx)，点文件页右上角的 **Download raw file**（下载原始文件），保存为 `single-cylinder-cycle.hydx`。
+2. 在软件里点 **文件 → 打开工程…**，选刚下载的文件。如果当前是未保存的空白工作区，出现提示时点确认继续。
+3. 点工具栏的 **▶ 运行**。油缸依次**伸出 2 秒 → 停留 1 秒 → 缩回 2 秒 → 中位结束 1 秒**。仿真时间到 6 秒后，右侧运行状态显示「已完成」。
+4. 在右侧 **曲线预览** 选择 **C1 液压缸 · 实际位移**，点 **刷新**。曲线先上升、再趋平、随后下降。要再跑一轮，先点 **复位**，再点 **运行**。
+
+**English.** On the [example file page](examples/single-cylinder-cycle.hydx), choose **Download raw file**. In Deatalos, select **File → Open Project** (`文件 → 打开工程…`), open the `.hydx` file, and press **Run** (`运行`). The cylinder extends, holds, retracts, and stops at 6 s of simulation time. In the right-hand **Curve Preview** (`曲线预览`), choose **C1 cylinder · Actual displacement** (`C1 液压缸 · 实际位移`) and click **Refresh** (`刷新`).
 
 ## 核心能力 · Highlights
 
@@ -39,13 +55,6 @@ Deatalos 把原理图绘制、油路诊断、瞬态仿真、工况计算和工�
 | 出图与文档 | 原理图可查看整张图纸或放大到回路，编辑标题栏、纸张方向及装订边。默认可导出 PDF、PNG、JPG，SVG 可在设置中启用。另可导出曲线图、CSV 和 Word 计算书。 |
 | 工程与工作区 | 支持打开、保存、另存和恢复副本。常用显示项、元件库模式、四套配色及导出默认值可在工作区调整。 |
 | 本机 AI 接入 | 可导入修改建议并在界面核对候选。本机工具接口需要手动开启，工程修改由用户确认，仿真控制有独立授权。 |
-
-## 从一条回路开始
-
-1. 在教学界面打开油缸或马达示例，先认识供油、换向和回油路径。也可以在进阶工作台从空白工程放置油箱、泵、换向阀和油缸。
-2. 连接油口，核对参数和设计初态，使用「适合全图」或「整理元件」查看布局。
-3. 若已配置进阶内核，通过「仿真」启动回路，用暂停或单步观察状态。可在曲线窗口对照阀位变化前后的压力或位移。
-4. 用「工具 → 计算」估算工况需求，再从「文件 → 导出」保存原理图、运行记录或计算书。
 
 ## 从源码运行
 
