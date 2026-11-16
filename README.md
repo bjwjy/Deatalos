@@ -7,14 +7,15 @@
   <strong>From hydraulic schematics to circuit analysis and engineering reports.</strong>
 </p>
 <p align="center">
-  <a href="https://github.com/bjwjy/Deatalos/releases"><strong>Windows 安装包发布页 · Windows Releases</strong></a>
+  <a href="https://github.com/bjwjy/Deatalos/releases/download/v1.4.0-rc.1/Deatalos-1.4.0-rc.1-x64-Setup.exe"><strong>下载 V1.4 Windows x64 安装包 · Download Windows Installer</strong></a>
+  · <a href="https://github.com/bjwjy/Deatalos/releases/tag/v1.4.0-rc.1">发布说明 · Release notes</a>
   · <a href="#从源码运行">从源码运行</a>
   · <a href="#english">English</a>
 </p>
 
-**当前公开版本为 V1.4（1.4.0-rc.1）源码。** 安装包发布页目前没有公开的 Windows 安装文件。
+**当前版本 V1.4（1.4.0-rc.1）**提供 Windows x64 离线安装包，约 114 MB，内含运行环境。下载并运行 `Setup.exe` 即可安装。
 
-**V1.4 (1.4.0-rc.1) source is available now.** A public Windows installer is not yet available.
+**V1.4 (1.4.0-rc.1)** is available as an offline Windows x64 installer (about 114 MB). Download and run `Setup.exe` to install.
 
 Deatalos 把原理图绘制、油路诊断、瞬态仿真、工况计算和工程出图放在同一个 Windows 工作台。它面向液压教学、回路设计和工程初算，适合从泵、阀、缸和马达搭起回路，再用曲线和计算结果检查设计。
 
