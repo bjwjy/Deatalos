@@ -1,4 +1,4 @@
-import { ContractReader, valueReasonDisplay } from '@hyd/domain';
+import { engineeringValueText, ContractReader, valueReasonDisplay } from '@hyd/domain';
 import type { CalculationStep, ResultValue } from '@hyd/engineering';
 
 /** Bounded presentation tree, shared by MathML preview and native Word equations. No evaluation or XML input. */
@@ -38,7 +38,7 @@ function numberMath(value: number): BookMath {
 }
 export function bookResult(value: ResultValue, unit: string): string {
   return value.kind === 'known'
-    ? bookNumber(value.value) + (unit === '1' ? '' : ' ' + unit)
+    ? engineeringValueText(value.value, unit)
     : `${value.kind === 'unknown' ? '未知' : '不适用'}：${valueReasonDisplay(value.reason)}`;
 }
 type Variable = (name: string, reference?: string) => BookMath;

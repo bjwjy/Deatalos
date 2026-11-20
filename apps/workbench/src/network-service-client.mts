@@ -18,7 +18,10 @@ import { diagnostic, type Result } from '@hyd/domain';
 declare global {
   interface Window {
     networkClipboard: { request(value: unknown): Promise<unknown> };
-    hydraulicKernel: { request(value: unknown): Promise<unknown> };
+    hydraulicKernel: {
+      request(value: unknown): Promise<unknown>;
+      onInitializationProgress(callback: (sequence: number, percent: number, stage: string) => void): () => void;
+    };
     networkFiles: {
       request(value: unknown): Promise<unknown>;
       hasStartupProject(): Promise<boolean>;

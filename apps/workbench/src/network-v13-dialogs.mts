@@ -33,7 +33,9 @@ function buttonClasses(dialog: HTMLDialogElement): void {
   for (const button of dialog.querySelectorAll('button')) {
     if (
       button.closest('.v13-dialog-header') ||
-      button.matches('.dialog-lock,[role="tab"],.b4-help-menu button,.valve-function-menu button')
+      button.matches(
+        '.engineering-unit-toggle,.dialog-lock,[role="tab"],.b4-help-menu button,.valve-function-menu button',
+      )
     )
       continue;
     addClass(button, 'dialog-button');
@@ -54,7 +56,7 @@ function parameterRows(dialog: HTMLDialogElement): void {
     const caption = row.querySelector(':scope>span');
     if (!caption) continue;
     const unit = caption.querySelector('small') || document.createElement('small');
-    const lock = caption.querySelector('button');
+    const lock = caption.querySelector('[data-rule-toggle]');
     row.classList.add('dialog-field-row');
     row.append(unit);
     if (lock) {

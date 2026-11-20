@@ -14,7 +14,7 @@ function geometryKey(project: NetworkProject): string {
     junctions: project.layout.nodes,
   });
 }
-const arrangementPolicy = 'work-stages-v4';
+const arrangementPolicy = 'verified-routing-v6';
 export function saveTreeRoutes(
   project: NetworkProject,
   paths: ReadonlyMap<string, readonly Point[]>,

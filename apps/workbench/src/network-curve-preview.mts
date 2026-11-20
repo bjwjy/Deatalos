@@ -1,14 +1,11 @@
-import {
-  legacyNetworkRecordCapacity,
-  parseExportArtifact,
-  type CurveRequest,
-  type NetworkExportCapture,
-} from '@hyd/application';
+import { parseExportArtifact, type CurveRequest, type NetworkExportCapture } from '@hyd/application';
 import { ContractReader, networkObjectDisplayName } from '@hyd/domain';
+import { createSidebarProjection } from './network-sidebar-series.mjs';
 import { element, escapeHtml } from './network-dom.mjs';
 interface Hooks {
   capture(): NetworkExportCapture | null;
   refresh(): Promise<NetworkExportCapture | null>;
+  refreshLive(): Promise<void>;
   running(): boolean;
 }
 /** A projection of the same frozen capture used by the data panel and export window. */
@@ -18,21 +15,24 @@ export function createNetworkCurvePreview(hooks: Hooks) {
   const select = control;
   const preview = element('curve');
   const status = element('curveStatus');
-  let display: { capture: NetworkExportCapture; request: CurveRequest; title: string } | undefined;
+  const projectSeries = createSidebarProjection();
+  let display:
+    { capture: NetworkExportCapture; target: CurveRequest['target']; toS: number; title: string } | undefined;
+  let idleWorker: Worker | undefined;
   let cancelDraw: (() => void) | undefined;
   let lastCapture: NetworkExportCapture | null | undefined = undefined,
     lastTarget = '';
+  let optionMarkup: string | undefined;
   let reading = false,
-    wasRunning = false,
-    lastRead = 0;
+    wasRunning = false;
+  let refreshTimer: number | undefined;
+  let period = 0;
   let drawn: { display: typeof display; width: number; height: number } | undefined;
-  function refresh(): void {
+  function refresh(live = false): void {
     if (reading) return;
     reading = true;
-    lastRead = performance.now();
     element('refreshCurvePreview').setAttribute('disabled', '');
-    void hooks
-      .refresh()
+    void (live ? hooks.refreshLive() : hooks.refresh())
       .then(render)
       .catch((cause: unknown) => {
         element('curveStatus').textContent = '读取失败：' + String(cause).slice(0, 150);
@@ -42,32 +42,52 @@ export function createNetworkCurvePreview(hooks: Hooks) {
         element('refreshCurvePreview').removeAttribute('disabled');
       });
   }
+  function refreshPeriod() {
+    if (document.hidden || document.documentElement.dataset.inspectorOpen === 'false') return 0;
+    const open = (id: string) => {
+      const panel = element(id).closest<HTMLElement>('.status-panel');
+      return panel && !panel.hidden && panel.dataset.collapsed !== 'true';
+    };
+    if (open('sidebarCurve')) return 500;
+    return open('shortcutResults') ? 2000 : 0;
+  }
   function render() {
     const capture = hooks.capture();
-    if (capture !== lastCapture) lastRead = performance.now();
     const running = hooks.running();
+    const visiblePeriod = refreshPeriod();
+    const nextPeriod = running && capture ? visiblePeriod : 0;
+    if (nextPeriod !== period) {
+      window.clearInterval(refreshTimer);
+      period = nextPeriod;
+      if (period) {
+        // Schedule from the start of each interval. A busy capture or draw skips
+        // the tick so a slow circuit cannot accumulate work on the UI thread.
+        refreshTimer = window.setInterval(() => {
+          if (hooks.running() && hooks.capture() && refreshPeriod() === period && !reading && !cancelDraw)
+            refresh(true);
+        }, period);
+      }
+    }
     const needsFinal = wasRunning && !running;
     wasRunning = running;
-    const visible = ['shortcutResults', 'sidebarCurve'].some(
-      (id) => element(id).closest<HTMLElement>('.status-panel')?.hidden === false,
-    );
-    // Runtime polling owns the first non-empty capture. Do not enqueue another
-    // freeze/read at tick zero, or immediately re-read a capture just received.
-    if (visible && (needsFinal || (!cancelDraw && running && capture && performance.now() - lastRead >= 2000)))
-      refresh();
+    if (visiblePeriod && needsFinal) refresh();
     if (capture === lastCapture && select.value === lastTarget) return;
     const previous = select.value;
     if (capture !== lastCapture) {
-      select.innerHTML =
+      const markup =
         capture?.view.quantities
           .map(
             (q, i) =>
               `<option value="${i}">${escapeHtml(networkObjectDisplayName(capture.view.document, q.objectKind, q.objectId) + ' · ' + q.label)}</option>`,
           )
           .join('') ?? '<option value="">暂无可预览量值</option>';
-      const preferred = capture?.view.quantities.findIndex((q) => q.field === 'position');
-      if ([...select.options].some((option) => option.value === previous)) select.value = previous;
-      else if (preferred !== undefined && preferred >= 0) select.value = String(preferred);
+      if (markup !== optionMarkup) {
+        optionMarkup = markup;
+        select.innerHTML = markup;
+        const preferred = capture?.view.quantities.findIndex((q) => q.field === 'position');
+        if ([...select.options].some((option) => option.value === previous)) select.value = previous;
+        else if (preferred !== undefined && preferred >= 0) select.value = String(preferred);
+      }
     }
     lastCapture = capture;
     lastTarget = select.value;
@@ -77,6 +97,8 @@ export function createNetworkCurvePreview(hooks: Hooks) {
     drawn = undefined;
     preview.classList.remove('curve-empty');
     if (!capture) {
+      idleWorker?.terminate();
+      idleWorker = undefined;
       stamp(null);
       status.textContent = '尚无运行记录';
       preview.classList.add('curve-empty');
@@ -92,29 +114,20 @@ export function createNetworkCurvePreview(hooks: Hooks) {
       status.textContent = '所选量值没有实际样本。';
       return;
     }
-    const request: CurveRequest = {
-      target: { objectKind: q.objectKind, objectId: q.objectId, field: q.field },
-      fromS: first.identity.timeS,
-      toS: last.identity.timeS,
-      maximumPoints: capture.samples.length > legacyNetworkRecordCapacity ? capture.samples.length : 300,
-      relativeTolerance: 0.005,
-      samplesPerFile: 200,
-      scope: 'curve',
-      keys: [],
-    };
-    const before = previousDisplay?.request.target;
+    const target = { objectKind: q.objectKind, objectId: q.objectId, field: q.field };
+    const before = previousDisplay?.target;
     if (
       previousDisplay?.capture.view.point.identity.simulationSessionId !==
         capture.view.point.identity.simulationSessionId ||
-      before?.objectKind !== request.target.objectKind ||
-      before.objectId !== request.target.objectId ||
-      before.field !== request.target.field
+      before?.objectKind !== target.objectKind ||
+      before.objectId !== target.objectId ||
+      before.field !== target.field
     ) {
       stamp(null);
       preview.textContent = '';
       status.textContent = '正在整理曲线…';
     }
-    display = { capture, request, title: q.label };
+    display = { capture, target, toS: last.identity.timeS, title: q.label };
     draw();
   }
   function stamp(capture: NetworkExportCapture | null): void {
@@ -129,7 +142,7 @@ export function createNetworkCurvePreview(hooks: Hooks) {
     if (drawn?.display === display && drawn.width === width && drawn.height === height) return;
     cancelDraw?.();
     const job = display;
-    const { capture, request, title } = job;
+    const { capture, target, title } = job;
     drawn = { display, width, height };
     const current = () => display === job && hooks.capture() === capture && select.value === lastTarget;
     const reportFailure = (message: string) => {
@@ -137,13 +150,17 @@ export function createNetworkCurvePreview(hooks: Hooks) {
     };
     let task: Worker;
     try {
-      task = new Worker('./network-curve-worker.mjs', { type: 'module' });
+      task = idleWorker ?? new Worker('./network-curve-worker.mjs', { type: 'module' });
+      idleWorker = undefined;
     } catch {
       reportFailure('曲线整理线程无法启动，保留已显示的曲线。');
       return;
     }
-    const finish = () => {
-      task.terminate();
+    const finish = (reuse = false) => {
+      task.onmessage = null;
+      task.onerror = null;
+      if (reuse) idleWorker = task;
+      else task.terminate();
       window.clearTimeout(timer);
       if (cancelDraw === finish) cancelDraw = undefined;
     };
@@ -154,7 +171,7 @@ export function createNetworkCurvePreview(hooks: Hooks) {
     cancelDraw = finish;
     task.onmessage = (event: MessageEvent<unknown>) => {
       const accepted = cancelDraw === finish && current();
-      finish();
+      finish(accepted);
       if (!accepted) return;
       const r = new ContractReader(),
         reply = r.object(event.data, '', ['status', 'artifact', 'message']);
@@ -171,29 +188,31 @@ export function createNetworkCurvePreview(hooks: Hooks) {
       }
       preview.innerHTML = svg.value.text;
       stamp(capture);
-      status.textContent = `${capture.selection === 'history' ? '历史记录 · ' : ''}读取至 ${request.toS.toPrecision(5)} s`;
+      status.textContent = `${capture.selection === 'history' ? '历史记录 · ' : ''}读取至 ${job.toS.toPrecision(5)} s`;
     };
     task.onerror = () => {
       const accepted = cancelDraw === finish;
       finish();
       if (accepted) reportFailure('曲线整理失败，保留已显示的曲线。');
     };
-    try {
-      task.postMessage({
-        mode: 'sidebar',
-        capture,
-        request,
-        figure: { paper: 'A4', title, showExplanation: false },
-        viewport: { width, height },
+    const active = () => cancelDraw === finish && current();
+    void projectSeries(capture, target, active)
+      .then((series) => {
+        if (!series || !active()) return;
+        task.postMessage(
+          { mode: 'sidebar', ...series, title, snapshotId: capture.snapshotId, viewport: { width, height } },
+          [series.data.buffer],
+        );
+      })
+      .catch((cause: unknown) => {
+        if (!active()) return;
+        finish();
+        reportFailure('曲线预览读取失败：' + String(cause).slice(0, 150));
       });
-    } catch {
-      finish();
-      reportFailure('曲线整理请求无法发送，保留已显示的曲线。');
-    }
   }
   new ResizeObserver(draw).observe(preview);
   select.addEventListener('change', render);
-  element('refreshCurvePreview').addEventListener('click', refresh);
+  element('refreshCurvePreview').addEventListener('click', () => refresh());
   element('curveExportSettings').addEventListener('click', () => element('openCurveTools').click());
   return {
     render,

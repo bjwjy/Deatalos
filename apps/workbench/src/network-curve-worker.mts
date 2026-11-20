@@ -11,6 +11,7 @@ import {
   type CurvePlan,
 } from '@hyd/application';
 import { ContractReader } from '@hyd/domain';
+import { drawSidebarSeries } from './network-sidebar-series.mjs';
 import { exportCurveSvg } from './network-curve-svg.mjs';
 function collectCsv(capture: NetworkExportCapture, plan: CurvePlan, csv: ExportArtifact[]) {
   for (let i = 0; i < plan.segments.length; i++) {
@@ -21,6 +22,8 @@ function collectCsv(capture: NetworkExportCapture, plan: CurvePlan, csv: ExportA
   return '';
 }
 function prepare(input: unknown) {
+  if (input && typeof input === 'object' && 'mode' in input && input.mode === 'sidebar')
+    return drawSidebarSeries(input);
   const r = new ContractReader(),
     o = r.object(input, '', ['capture', 'request', 'figure', 'mode', 'comparison', 'viewport']);
   const capture = parseCurveCapture(o.capture);
@@ -32,17 +35,6 @@ function prepare(input: unknown) {
   if (!planned.ok)
     return { status: 'error', message: planned.diagnostics.map((d) => d.code + ': ' + d.message).join('；') };
   const plan = planned.value;
-  if (o.mode === 'sidebar') {
-    const viewport = r.object(o.viewport, '/viewport', ['width', 'height']);
-    const width = r.number(viewport.width, '/viewport/width', 120, 16384),
-      height = r.number(viewport.height, '/viewport/height', 100, 16384);
-    const dimensions = r.finish({ width, height, compact: true });
-    if (!dimensions.ok) return { status: 'error', message: '曲线预览尺寸无效。' };
-    const svg = exportCurveSvg(capture.value, plan, figure.value.paper, figure.value, dimensions.value);
-    return svg.ok
-      ? { status: 'sidebar', artifact: svg.value }
-      : { status: 'error', message: svg.diagnostics.map((d) => d.message).join('；') };
-  }
   if (o.mode === 'csv') {
     const csv: ExportArtifact[] = [];
     let problem = collectCsv(capture.value, plan, csv);

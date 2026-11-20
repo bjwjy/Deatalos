@@ -1,3 +1,5 @@
+import { bindCylinderDiameters, cylinderDiameterFields } from './network-cylinder-diameters.mjs';
+import { bindEngineeringInputs, engineeringInputValue } from './network-engineering-inputs.mjs';
 import {
   parseNetworkProject,
   networkDefinition,
@@ -27,12 +29,15 @@ import {
   pressurizedControlDrainPipeEligible,
   sharedPumpReturnPipeEligible,
   steadyDutyPipeEligible,
+  storagePipeEligible,
+  suctionPipeEligible,
 } from '@hyd/engineering';
 import {
   componentDisplayName,
   enableRotaryWorkProtection,
   parameterDisplayName,
   unitDisplayName,
+  engineeringValueText,
   networkObjectDisplayName,
 } from '@hyd/domain';
 
@@ -81,8 +86,8 @@ export function networkInitialFieldUnit(key: string): string {
 }
 function controlPressureFields(range: { readonly lowPa: number; readonly highPa: number } | undefined): string {
   return `<div data-control-pressure-range>
-    <label><span>压力下限 <small>MPa</small></span><input type="number" step="any" data-control-low value="${(range?.lowPa ?? 1e6) / 1e6}"></label>
-    <label><span>压力上限 <small>MPa</small></span><input type="number" step="any" data-control-high value="${(range?.highPa ?? 5e6) / 1e6}"></label>
+    <label><span>压力下限 <small>MPa</small></span><input type="number" step="any" data-engineering-unit="Pa" data-param-scale="1000000" data-control-low value="${(range?.lowPa ?? 1e6) / 1e6}"></label>
+    <label><span>压力上限 <small>MPa</small></span><input type="number" step="any" data-engineering-unit="Pa" data-param-scale="1000000" data-control-high value="${(range?.highPa ?? 5e6) / 1e6}"></label>
   </div>`;
 }
 function selectedMotorMode(root: HTMLElement): string | undefined {
@@ -90,8 +95,8 @@ function selectedMotorMode(root: HTMLElement): string | undefined {
 }
 function readControlPressureRange(root: HTMLElement) {
   const value = (selector: string) => {
-    const text = root.querySelector<HTMLInputElement>(selector)?.value;
-    return text?.trim() ? Number(text) * 1e6 : null;
+    const input = root.querySelector<HTMLInputElement>(selector);
+    return input?.value.trim() ? engineeringInputValue(input) : null;
   };
   return { lowPa: value('[data-control-low]'), highPa: value('[data-control-high]') };
 }
@@ -251,6 +256,10 @@ export function createNetworkProperties(hooks: PropertyHooks) {
       bindDrawingFields(component.id);
       return;
     }
+    const showDiameters =
+      component.parameters.geometry?.capAreaM2 !== undefined &&
+      ['cylinder', 'single-acting-cylinder', 'cushioned-cylinder'].includes(component.typeId);
+    const cylinderAreas: string[] = [];
     const paramFields = Object.entries(def.groups)
       .filter(
         ([group]) =>
@@ -266,25 +275,32 @@ export function createNetworkProperties(hooks: PropertyHooks) {
           const title =
             displacement && spec.key === 'displacementM3PerRev' ? '初始排量' : parameterDisplayName(spec.key);
           const value = component.parameters[group]?.[spec.key];
-          const shown = value === undefined ? '' : displacement ? value * 1e6 : value;
+          const shown = value ?? '';
           const rangeFields =
             motorRange && spec.key === 'inertiaKgM2'
               ? controlPressureFields(external?.lowPa === undefined ? undefined : external)
               : '';
-          return `${rangeFields}<label><span>${esc(title)}${parameterRuleField(component, group, spec.key)} <small>${esc(displacement ? 'cm³/rev' : unitDisplayName(spec.unit))}</small></span><input type="number" step="any" aria-label="${esc(title)}" data-param="${esc(group)}.${esc(spec.key)}" ${displacement ? 'data-displacement-unit' : ''} value="${shown}"></label>`;
+          const isCylinderArea =
+            showDiameters && group === 'geometry' && (spec.key === 'capAreaM2' || spec.key === 'rodSideAreaM2');
+          const field = `${rangeFields}<label><span><span data-engineering-label>${esc(title)}</span>${parameterRuleField(component, group, spec.key)} <small>${esc(displacement ? 'cm³/rev' : unitDisplayName(spec.unit))}</small></span><input type="number" step="any" aria-label="${esc(title)}" data-param="${esc(group)}.${esc(spec.key)}" data-engineering-unit="${esc(spec.unit)}" ${isCylinderArea || spec.key === 'equalAnnularAreaM2' ? 'data-engineering-precision="6"' : ''} value="${shown}"></label>`;
+          if (!isCylinderArea) return field;
+          cylinderAreas.push(field);
+          return spec.key === 'capAreaM2'
+            ? cylinderDiameterFields(component.parameters.geometry?.rodSideAreaM2 !== undefined)
+            : '';
         }),
       )
       .join('');
     const flowStorage = component.typeId === 'pressure-compensated-flow' ? component.parameters.storage : undefined;
     const flowStorageFields = flowStorage
-      ? `<fieldset><legend>A 口内置油液容积</legend><label><span>油液容积 ${parameterRuleField(component, 'storage', 'portVolumeM3')} <small>L</small></span><input type="number" step="any" data-param="storage.portVolumeM3" data-param-scale="0.001" value="${Number(flowStorage.portVolumeM3) * 1000}"></label><label><span>初始压力 ${parameterRuleField(component, 'storage', 'initialPressurePa')} <small>MPa</small></span><input type="number" step="any" data-param="storage.initialPressurePa" data-param-scale="1000000" value="${Number(flowStorage.initialPressurePa) / 1e6}"></label><p class="muted">A 口可直接串接节流负载。初压按工程压力基准解释。</p></fieldset>`
+      ? `<fieldset><legend>A 口内置油液容积</legend><label><span>油液容积 ${parameterRuleField(component, 'storage', 'portVolumeM3')} <small>L</small></span><input type="number" step="any" data-engineering-unit="m³" data-param="storage.portVolumeM3" data-param-scale="0.001" value="${Number(flowStorage.portVolumeM3) * 1000}"></label><label><span>初始压力 ${parameterRuleField(component, 'storage', 'initialPressurePa')} <small>MPa</small></span><input type="number" step="any" data-engineering-unit="Pa" data-param="storage.initialPressurePa" data-param-scale="1000000" value="${Number(flowStorage.initialPressurePa) / 1e6}"></label><p class="muted">A 口可直接串接节流负载。初压按工程压力基准解释。</p></fieldset>`
       : component.typeId === 'pressure-compensated-flow'
         ? '<fieldset><legend>A 口内置油液容积</legend><label><input type="checkbox" data-upgrade-flow-storage>启用内置油液容积</label><p class="muted">应用后增加 A 口储油。已有外接容积继续参与计算。</p></fieldset>'
         : '';
     const protection = def.groups.workProtection;
     const protectionReturn = component.parameters.protectionReturn;
     const rotaryReturnFields = protectionReturn
-      ? `<label>保护回油<select data-param="protectionReturn.internalTank"><option value="1" ${protectionReturn.internalTank === 1 ? 'selected' : ''}>内置油箱</option><option value="0" ${protectionReturn.internalTank === 0 ? 'selected' : ''}>外接 T 口</option></select></label><label>内置油箱压力 <small>MPa</small><input type="number" step="any" data-param="protectionReturn.pressurePa" data-param-scale="1000000" value="${Number(protectionReturn.pressurePa) / 1e6}"></label><p class="muted">内置油箱只给保护支路补油和回油。选外接时，将 T 口接至实际回油箱。</p>`
+      ? `<label>保护回油<select data-param="protectionReturn.internalTank"><option value="1" ${protectionReturn.internalTank === 1 ? 'selected' : ''}>内置油箱</option><option value="0" ${protectionReturn.internalTank === 0 ? 'selected' : ''}>外接 T 口</option></select></label><label>内置油箱压力 <small>MPa</small><input type="number" step="any" data-engineering-unit="Pa" data-param="protectionReturn.pressurePa" data-param-scale="1000000" value="${Number(protectionReturn.pressurePa) / 1e6}"></label><p class="muted">内置油箱只给保护支路补油和回油。选外接时，将 T 口接至实际回油箱。</p>`
       : '<label><input type="checkbox" data-upgrade-rotary-protection>改用内置油箱</label><p class="muted">当前使用外接 T 口。</p>';
     const rotaryProtectionFields = protection
       ? `<fieldset><legend>内置冲击溢流补油</legend><label><input type="checkbox" data-param="workProtection.enabled" ${component.parameters.workProtection?.enabled === 1 ? 'checked' : ''}>启用内置保护</label>${protection
@@ -292,7 +308,7 @@ export function createNetworkProperties(hooks: PropertyHooks) {
           .map(({ key, unit }) => {
             const title = key === 'maximumAreaM2' ? '溢流最大开口' : parameterDisplayName(key);
             const scale = unit === 'Pa' ? 1e6 : unit === 'm²' ? 1e-6 : 1;
-            return `<label><span>${esc(title)}${parameterRuleField(component, 'workProtection', key)} <small>${unit === 'Pa' ? 'MPa' : unit === 'm²' ? 'mm²' : ''}</small></span><input type="number" step="any" data-param="workProtection.${key}" data-param-scale="${scale}" aria-label="${esc(title)}" value="${Number(component.parameters.workProtection?.[key]) / scale}"></label>`;
+            return `<label><span>${esc(title)}${parameterRuleField(component, 'workProtection', key)} <small>${unit === 'Pa' ? 'MPa' : unit === 'm²' ? 'mm²' : ''}</small></span><input type="number" step="any" data-engineering-unit="${unit}" data-param="workProtection.${key}" data-param-scale="${scale}" aria-label="${esc(title)}" value="${Number(component.parameters.workProtection?.[key]) / scale}"></label>`;
           })
           .join('')}${rotaryReturnFields}</fieldset>`
       : component.typeId === 'limited-rotary-actuator'
@@ -307,7 +323,7 @@ export function createNetworkProperties(hooks: PropertyHooks) {
         ]
           .map(
             ({ key, label, unit, scale }) =>
-              `<label><span>${label} <small>${unit}</small></span><input type="number" step="any" data-param="outletRelief.${key}" data-param-scale="${scale}" aria-label="${label}" value="${Number(outlet[key]) / scale}"></label>`,
+              `<label><span>${label} <small>${unit}</small></span><input type="number" step="any" data-engineering-unit="${unit === 'MPa' ? 'Pa' : unit === 'mm²' ? 'm²' : '1'}" data-param="outletRelief.${key}" data-param-scale="${scale}" aria-label="${label}" value="${Number(outlet[key]) / scale}"></label>`,
           )
           .join('')}<p class="muted">默认开启压差 60 MPa。R 口接实际回油，H 侧储油容积在模型参数中调整。</p></fieldset>`
       : component.typeId === 'pressure-intensifier'
@@ -322,7 +338,7 @@ export function createNetworkProperties(hooks: PropertyHooks) {
           continue;
         }
         const unit = networkInitialFieldUnit(key);
-        initialFields += `<label><span>${esc(parameterDisplayName(key))} <small>${unit}</small></span><input type="number" step="any" aria-label="${esc(parameterDisplayName(key))}" data-initial="${key}" value="${Object.entries(initial).find(([field]) => field === key)?.[1] ?? ''}" placeholder="留空表示未知"></label>`;
+        initialFields += `<label><span><span data-engineering-label>${esc(parameterDisplayName(key))}</span> <small>${unit}</small></span><input type="number" step="any" aria-label="${esc(parameterDisplayName(key))}" data-engineering-unit="${unit}" data-initial="${key}" value="${Object.entries(initial).find(([field]) => field === key)?.[1] ?? ''}" placeholder="留空表示未知"></label>`;
       }
     const assumptions = networkModelAssumptions(component)
       .map((note) => `<p class="muted">${esc(note)}</p>`)
@@ -342,16 +358,16 @@ export function createNetworkProperties(hooks: PropertyHooks) {
         ]
           .map(
             ([key, label, unit]) =>
-              `<label><span>${label}${key ? parameterRuleField(component, 'relief', key) : ''} <small>${unit}</small></span><input data-relief="${key}" aria-label="内置溢流${label}" type="number" step="any" value="${key ? relief[key] : ''}"></label>`,
+              `<label><span>${label}${key ? parameterRuleField(component, 'relief', key) : ''} <small>${unit}</small></span><input data-engineering-unit="${unit}" data-relief="${key}" aria-label="内置溢流${label}" type="number" step="any" value="${key ? relief[key] : ''}"></label>`,
           )
           .join(
             '',
-          )}<p class="muted">开启条件取 P 与 S 的压差，泄放从 P 流向 S。新建泵默认开启压差为 60 MPa，可在这里修改。旧泵勾选后点应用，即可升级为带内置溢流的模型。</p><button id="previewPumpRelief" type="button">预览内置溢流</button><button id="cancelPumpRelief" type="button">取消未应用修改</button><p id="pumpReliefPreview" role="status"></p></fieldset>`
+          )}<p class="muted">开启条件取 P 与 S 的压差，泄放从 P 流向 S。新建泵默认开启压差为 16 MPa，可在这里修改。旧泵勾选后点应用，即可升级为带内置溢流的模型。</p><button id="previewPumpRelief" type="button">预览内置溢流</button><button id="cancelPumpRelief" type="button">取消未应用修改</button><p id="pumpReliefPreview" role="status"></p></fieldset>`
       : '';
     const preset = networkTeachingPreset(component, hooks.editor().document.design.fluid.densityKgPerM3);
     const reference = hooks.editor().document.design.pressureReference;
     const pressureControls = editing.projectPressureReference
-      ? `<fieldset><legend>工程压力基准</legend><label>液压压力参数的基准<select data-project-pressure-kind aria-label="工程压力基准"><option value="kernel-numeric" ${reference.kind === 'kernel-numeric' ? 'selected' : ''}>内核数值（未声明绝压）</option><option value="gauge" ${reference.kind === 'gauge' ? 'selected' : ''}>表压</option></select></label><label>绝压参考 / Pa<input data-absolute-reference type="number" step="any" min="1" aria-label="工程绝压参考" value="${reference.absoluteReferencePa ?? ''}"></label><p class="muted">蓄能器需要选择表压并明确填写绝压参考。应用后本工程所有液压压力参数按此基准解释，预充参数始终为绝压；需要重新初始化。</p></fieldset>`
+      ? `<fieldset><legend>工程压力基准</legend><label>液压压力参数的基准<select data-project-pressure-kind aria-label="工程压力基准"><option value="kernel-numeric" ${reference.kind === 'kernel-numeric' ? 'selected' : ''}>内核数值（未声明绝压）</option><option value="gauge" ${reference.kind === 'gauge' ? 'selected' : ''}>表压</option></select></label><label>绝压参考 <small>Pa</small><input data-engineering-unit="Pa" data-absolute-reference type="number" step="any" min="1" aria-label="工程绝压参考" value="${reference.absoluteReferencePa ?? ''}"></label><p class="muted">蓄能器需要选择表压并明确填写绝压参考。应用后本工程所有液压压力参数按此基准解释，预充参数始终为绝压；需要重新初始化。</p></fieldset>`
       : '';
     const presetControl = preset ? '<button id="applyTeachingPreset" type="button">恢复默认值</button>' : '';
     const bounds = networkComponentPresentationBounds(component, { componentId: component.id, x: 0, y: 0, scale: 1 });
@@ -391,8 +407,10 @@ export function createNetworkProperties(hooks: PropertyHooks) {
       </dialog>`
       : '';
     $('properties').innerHTML =
-      `<div class="white-property-overview">${symbol}<strong>${esc(component.label)} · ${esc(componentDisplayName(component.typeId, def.id))}</strong></div><label><span>名称</span><input data-label value="${esc(component.label)}" maxlength="60"></label>${pressureControls}${controlSettings}<details open><summary>模型参数</summary>${paramFields}</details>${reliefControls}${rotaryProtectionFields}${outletFields}${flowStorageFields}<details><summary>设计初始条件</summary>${initialFields || '<p class="muted">此元件没有独立动态初态。</p>'}</details><details><summary>定义与模型技术详情</summary>${assumptions}<pre>${esc(def.id)} / ${def.version}\n${esc(component.model.id)} / ${esc(component.model.version)}</pre></details>${drawingFields(component.id)}<div class="white-property-actions">${presetControl}${curveButton}<button id="applyProperties" class="primary" type="button">应用</button></div>${curveDialog}`;
+      `<div class="white-property-overview">${symbol}<strong>${esc(component.label)} · ${esc(componentDisplayName(component.typeId, def.id))}</strong></div><label><span>名称</span><input data-label value="${esc(component.label)}" maxlength="60"></label>${pressureControls}${controlSettings}<details open><summary>模型参数</summary>${paramFields}${cylinderAreas.length ? `<details><summary>${component.typeId === 'single-acting-cylinder' ? '有效面积' : '两腔有效面积'}</summary>${cylinderAreas.join('')}</details>` : ''}</details>${reliefControls}${rotaryProtectionFields}${outletFields}${flowStorageFields}<details><summary>设计初始条件</summary>${initialFields || '<p class="muted">此元件没有独立动态初态。</p>'}</details><details><summary>定义与模型技术详情</summary>${assumptions}<pre>${esc(def.id)} / ${def.version}\n${esc(component.model.id)} / ${esc(component.model.version)}</pre></details>${drawingFields(component.id)}<div class="white-property-actions">${presetControl}${curveButton}<button id="applyProperties" class="primary" type="button">应用</button></div>${curveDialog}`;
     const root = $('properties');
+    bindEngineeringInputs(root);
+    bindCylinderDiameters(root);
     const teaching = teachingDemoButton(componentTeachingReference(hooks.editor().document, component));
     if (teaching) root.querySelector('.white-property-overview')?.append(teaching);
     const curveRoot = root.querySelector<HTMLElement>('[data-motor-curve]');
@@ -413,12 +431,12 @@ export function createNetworkProperties(hooks: PropertyHooks) {
       $('openMotorCurve').addEventListener('click', () => {
         const externalMode = selectedMotorMode(root) !== 'local';
         const pressure = readControlPressureRange(root);
-        const min =
-          Number(root.querySelector<HTMLInputElement>('[data-param="hydraulic.minimumDisplacementM3PerRev"]')?.value) /
-          1e6;
-        const max =
-          Number(root.querySelector<HTMLInputElement>('[data-param="hydraulic.maximumDisplacementM3PerRev"]')?.value) /
-          1e6;
+        const min = engineeringInputValue(
+          root.querySelector<HTMLInputElement>('[data-param="hydraulic.minimumDisplacementM3PerRev"]'),
+        );
+        const max = engineeringInputValue(
+          root.querySelector<HTMLInputElement>('[data-param="hydraulic.maximumDisplacementM3PerRev"]'),
+        );
         if (!(min > 0 && max > min && max <= 0.01)) {
           hooks.feedback.show([{ code: 'PARAMETER_INVALID', message: '请先填写有效的最小和最大排量。' }]);
           return;
@@ -481,7 +499,7 @@ export function createNetworkProperties(hooks: PropertyHooks) {
         const config = selected?.parameters.relief;
         $('pumpReliefPreview').textContent =
           config?.enabled === 1
-            ? `预览：P→S；开启压差${config.settingDifferentialPa} Pa，最大开口${config.maximumAreaM2} m²，流量系数${config.flowCoefficient}。尚未应用。`
+            ? `预览：P→S；开启压差${Number(config.settingDifferentialPa) / 1e6} MPa，最大开口${Number(config.maximumAreaM2) * 1e6} mm²，流量系数${config.flowCoefficient}。尚未应用。`
             : '预览：内置溢流关闭，尚未应用。';
       });
       $('cancelPumpRelief').addEventListener('click', () => {
@@ -546,13 +564,16 @@ export function createNetworkProperties(hooks: PropertyHooks) {
     const original = edge?.kind === 'pipe' ? edge.parameters : null;
     const support = original && physicalPipeMappingSupport(original, `/design/connections/${id}`);
     const steadyEligible = (project: NetworkProject) =>
+      suctionPipeEligible(project, id) ||
+      storagePipeEligible(project, id) ||
       steadyDutyPipeEligible(project, id) ||
       sharedPumpReturnPipeEligible(project, id) ||
       pressurizedControlDrainPipeEligible(project, id) ||
       combinedDutyPipeEligible(project, id);
     const steadySupport = original && steadyEligible(hooks.editor().document);
     $('properties').innerHTML =
-      `<strong>${esc(title)} · 物理管参数</strong><p>${draft ? '虚线为待提交草稿，不进入保存或计算。请填写来源明确的实际数值。' : '以下为已保存原值；预览或取消不会修改工程。'}</p><details open><summary>稳态核算与仿真条件</summary><p>在已支持的单泵管路、双泵共用回油干线或双泵合流母线接线完整后，可保存实际粗糙度和 K，用于当前设计稳态核算。瞬态仿真仍要求 L&gt;0、K=0、Re&lt;2000。绘图长度不作管长。</p></details>${support && !support.ok && !steadySupport ? '<p class="error">原值超出当前管路支持域，待核。</p>' : ''}${physicalPipeParameters.map((spec) => `<label><span>${esc(parameterDisplayName(spec.key))} <small>${esc(unitDisplayName(spec.unit))}</small></span><input type="number" step="any" data-pipe-param="${esc(spec.key)}" aria-label="${esc(parameterDisplayName(spec.key))}" min="${spec.minimum}" max="${spec.maximum}" value="${original?.[spec.key] ?? ''}" placeholder="实际值"></label>`).join('')}<button id="previewPipe" class="wide">预览参数</button><p id="pipePreview" role="status">尚未预览；不会修改当前运行。</p><button id="applyPipe" class="wide primary" disabled>${draft ? '确认建立物理管' : '应用物理管参数'}</button><button id="cancelPipe" class="wide">取消修改</button><p class="muted">确认应用才增加物理修订、使旧结果失效；可撤销。不改变端点、模型与绘图路径。</p>`;
+      `<strong>${esc(title)} · 物理管参数</strong><p>${draft ? '虚线为待提交草稿，不进入保存或计算。请填写来源明确的实际数值。' : '以下为已保存原值；预览或取消不会修改工程。'}</p><details open><summary>稳态核算与仿真条件</summary><p>在单泵有损吸油试验管、恒压源与单只蓄能器间的串联管、已支持的单泵管路、双泵共用回油干线或双泵合流母线接线完整后，可保存实际粗糙度和 K，用于当前设计稳态核算。瞬态仿真仍要求 L&gt;0、K=0、Re&lt;2000。绘图长度不作管长。</p></details>${support && !support.ok && !steadySupport ? '<p class="error">原值超出当前管路支持域，待核。</p>' : ''}${physicalPipeParameters.map((spec) => `<label><span>${esc(parameterDisplayName(spec.key))} <small>${esc(unitDisplayName(spec.unit))}</small></span><input type="number" step="any" data-engineering-unit="${esc(spec.unit)}" data-pipe-param="${esc(spec.key)}" aria-label="${esc(parameterDisplayName(spec.key))}" min="${spec.minimum}" max="${spec.maximum}" value="${original?.[spec.key] ?? ''}" placeholder="实际值"></label>`).join('')}<button id="previewPipe" class="wide">预览参数</button><p id="pipePreview" role="status">尚未预览；不会修改当前运行。</p><button id="applyPipe" class="wide primary" disabled>${draft ? '确认建立物理管' : '应用物理管参数'}</button><button id="cancelPipe" class="wide">取消修改</button><p class="muted">确认应用才增加物理修订、使旧结果失效；可撤销。不改变端点、模型与绘图路径。</p>`;
+    bindEngineeringInputs($('properties'));
     const document = hooks.editor().document,
       documentSession = hooks.editor().documentSessionId,
       physicsRevision = hooks.editor().physicsRevision;
@@ -580,10 +601,10 @@ export function createNetworkProperties(hooks: PropertyHooks) {
       for (const input of $('properties').querySelectorAll<HTMLInputElement>('[data-pipe-param]')) {
         const key = input.dataset.pipeParam!,
           spec = physicalPipeParameters.find((spec) => spec.key === key)!;
-        const value = input.value === '' ? NaN : Number(input.value);
+        const value = engineeringInputValue(input);
         if (!Number.isFinite(value) || value < spec.minimum || value > spec.maximum) {
           $('pipePreview').textContent =
-            `${parameterDisplayName(key)}需填写${spec.minimum}～${spec.maximum} ${unitDisplayName(spec.unit)}的有限实际值；未修改工程。`;
+            `${parameterDisplayName(key)}需填写${input.min}～${input.max} ${input.dataset.displayUnit}的有限实际值；未修改工程。`;
           hooks.feedback.show(
             [
               {
@@ -640,7 +661,7 @@ export function createNetworkProperties(hooks: PropertyHooks) {
         physicalPipeParameters
           .map(
             (spec) =>
-              `${parameterDisplayName(spec.key)}：${original?.[spec.key] ?? '未设置'} → ${parameters[spec.key]} ${unitDisplayName(spec.unit)}`,
+              `${parameterDisplayName(spec.key)}：${engineeringValueText(original?.[spec.key], spec.unit, spec.key)} → ${engineeringValueText(parameters[spec.key], spec.unit, spec.key)}`,
           )
           .join('；') +
         (supported.ok
@@ -691,6 +712,12 @@ export function createNetworkProperties(hooks: PropertyHooks) {
     const params: Record<string, Record<string, number>> = Object.fromEntries(
       Object.keys(c.parameters).map((group) => [group, { ...c.parameters[group] }]),
     );
+    const invalidDiameter = root.querySelector<HTMLInputElement>('[data-cylinder-diameter]:invalid');
+    if (invalidDiameter) {
+      hooks.feedback.show([{ code: 'PARAMETER_INVALID', message: invalidDiameter.validationMessage }]);
+      invalidDiameter.reportValidity();
+      return;
+    }
     for (const input of root.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-param]')) {
       const [group, key] = input.dataset.param!.split('.');
       const value =
@@ -707,8 +734,8 @@ export function createNetworkProperties(hooks: PropertyHooks) {
         input.focus();
         return;
       }
-      const scale = input.hasAttribute('data-displacement-unit') ? 1e-6 : Number(input.dataset.paramScale ?? 1);
-      groupParams[key!] = value * scale;
+      groupParams[key!] =
+        input instanceof HTMLInputElement && input.type === 'number' ? engineeringInputValue(input) : value;
     }
     const initials: unknown[] = [...hooks.editor().document.design.initialConditions];
     const idx = hooks.editor().document.design.initialConditions.findIndex((v) => v.componentId === id),
@@ -728,7 +755,7 @@ export function createNetworkProperties(hooks: PropertyHooks) {
               ? null
               : input instanceof HTMLSelectElement
                 ? input.value
-                : Number(input.value);
+                : engineeringInputValue(input);
         if (typeof next[key] === 'number' && !Number.isFinite(next[key])) {
           hooks.feedback.show([
             {
@@ -792,7 +819,7 @@ export function createNetworkProperties(hooks: PropertyHooks) {
               pressureReference: {
                 kind: root.querySelector<HTMLSelectElement>('[data-project-pressure-kind]')?.value,
                 absoluteReferencePa: root.querySelector<HTMLInputElement>('[data-absolute-reference]')?.value.trim()
-                  ? Number(root.querySelector<HTMLInputElement>('[data-absolute-reference]')?.value)
+                  ? engineeringInputValue(root.querySelector<HTMLInputElement>('[data-absolute-reference]'))
                   : null,
               },
             }
@@ -806,7 +833,7 @@ export function createNetworkProperties(hooks: PropertyHooks) {
     const checkbox = root.querySelector<HTMLInputElement>('[data-relief="enabled"]');
     if (!checkbox) return parsed.value;
     const numeric = (key: string) =>
-      Number(root.querySelector<HTMLInputElement>(`[data-relief="${key}"]`)?.value || NaN);
+      engineeringInputValue(root.querySelector<HTMLInputElement>(`[data-relief="${key}"]`));
     const candidate = configurePumpRelief(parsed.value, id, {
       enabled: checkbox.checked,
       settingDifferentialPa: numeric('settingDifferentialPa'),

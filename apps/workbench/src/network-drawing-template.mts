@@ -11,15 +11,16 @@ const key = 'hydraulic-drawing-templates-v1';
 const defaultKey = 'deatalos-drawing-template-default-v1';
 /** Owns only export-form controls and local template preferences, never engineering data. */
 export function createDrawingTemplates(values: HTMLElement, changed: () => void) {
-  const choice = element('formal-template-choice'),
+  const choiceControl = element('formal-template-choice'),
     nameControl = element('formal-template-name'),
     preference = element('appDrawingTemplate');
   if (
-    !(choice instanceof HTMLSelectElement) ||
+    !(choiceControl instanceof HTMLSelectElement) ||
     !(nameControl instanceof HTMLInputElement) ||
     !(preference instanceof HTMLSelectElement)
   )
     throw new Error('Template controls missing');
+  const choice = choiceControl;
   const name = nameControl;
   const preferredControl = preference;
   const preferredStatus = element('appDrawingTemplateStatus');
@@ -31,6 +32,9 @@ export function createDrawingTemplates(values: HTMLElement, changed: () => void)
   values.append(extras);
   let library: readonly DrawingTemplate[] = [],
     fields: readonly DrawingTemplateField[] | undefined,
+    columns: DrawingTemplate['columns'],
+    fontSizes: DrawingTemplate['fontSizes'],
+    table: DrawingTemplate['table'],
     preferredName = '',
     storageBlocked = false;
   try {
@@ -66,7 +70,8 @@ export function createDrawingTemplates(values: HTMLElement, changed: () => void)
     }
   });
   function render() {
-    const active = fields ?? [];
+    const active = table ? [] : (fields ?? []);
+    for (const id of ['formal-template-edit', 'formal-template-add']) element(id).hidden = !!table;
     const customValues = new Map(
       [...extras.querySelectorAll<HTMLInputElement>('input')].map((e) => [e.dataset.formalField, e.value]),
     );
@@ -83,14 +88,14 @@ export function createDrawingTemplates(values: HTMLElement, changed: () => void)
       const parent = input?.parentElement;
       if (!parent || !input) continue;
       const item = fields?.find((f) => f.key === fieldKey);
-      parent.hidden = fields !== undefined && !item?.visible;
+      parent.hidden = table ? !table.some((c) => c.field === fieldKey) : fields !== undefined && !item?.visible;
       if (parent.firstChild?.nodeType === Node.TEXT_NODE) parent.firstChild.textContent = item?.label ?? label ?? '';
     }
     extras.innerHTML = (fields ?? [])
       .filter((f) => !drawingFields.some(([k]) => k === f.key))
       .map(
         (f) =>
-          `<label ${f.visible ? '' : 'hidden'}>${esc(f.label)}<input data-formal-field="${esc(f.key)}" maxlength="160" value="${esc(customValues.get(f.key) ?? '')}"></label>`,
+          `<label ${(table ? table.some((c) => c.field === f.key) : f.visible) ? '' : 'hidden'}>${esc(f.label)}<input data-formal-field="${esc(f.key)}" maxlength="160" value="${esc(customValues.get(f.key) ?? '')}"></label>`,
       )
       .join('');
     for (const row of values.querySelectorAll<HTMLElement>('fieldset')) row.hidden = fields !== undefined;
@@ -153,32 +158,36 @@ export function createDrawingTemplates(values: HTMLElement, changed: () => void)
   });
   function applyTemplate(selected?: DrawingTemplate): void {
     fields = selected?.fields;
+    columns = selected?.columns;
+    fontSizes = selected?.fontSizes;
+    table = selected?.table;
     name.value = selected?.name ?? '自定义图框';
     render();
   }
   choice.addEventListener('change', () => {
-    applyTemplate(choice.value === '' ? undefined : library[Number(choice.value)]);
+    const selected = choice.value === '' ? undefined : library[Number(choice.value)];
+    choice.querySelector('option[value="draft"]')?.remove();
+    applyTemplate(selected);
     changed();
   });
-  element('formal-template-save').addEventListener('click', () => {
-    customize();
-    const parsed = parseDrawingTemplate({ version: 1, name: name.value.trim(), fields });
+  function saveTemplate(template: DrawingTemplate): boolean {
+    const parsed = parseDrawingTemplate(template);
     if (!parsed.ok) {
       status.textContent = parsed.diagnostics.map((d) => d.message).join('；');
-      return;
+      return false;
     }
     if (storageBlocked) {
       status.textContent = '原模板库读取失败，未覆盖；本图仍可使用临时字段设置。';
-      return;
+      return false;
     }
     if (library.some((t) => t.name === parsed.value.name)) {
       status.textContent = '该模板名称已存在，请换一个名称保存，已有模板保留。';
-      return;
+      return false;
     }
     const next = parseDrawingTemplateLibrary({ version: 1, templates: [...library, parsed.value] });
     if (!next.ok) {
       status.textContent = next.diagnostics.map((d) => d.message).join('；');
-      return;
+      return false;
     }
     try {
       localStorage.setItem(key, JSON.stringify({ version: 1, templates: next.value }));
@@ -188,15 +197,46 @@ export function createDrawingTemplates(values: HTMLElement, changed: () => void)
       status.textContent = '模板已保存到本机；本图填写内容未写入模板。';
     } catch (cause: unknown) {
       status.textContent = '模板未保存：' + String(cause).slice(0, 160);
+      return false;
     }
-    render();
-    changed();
+    return true;
+  }
+  const current = (): DrawingTemplate | undefined =>
+    fields === undefined
+      ? undefined
+      : {
+          version: 1,
+          name: name.value.trim(),
+          fields,
+          ...(fontSizes ? { fontSizes } : {}),
+          ...(table ? { table } : {}),
+          ...(columns ? { columns } : {}),
+        };
+  element('formal-template-save').addEventListener('click', () => {
+    customize();
+    const candidate = current();
+    if (candidate && saveTemplate(candidate)) {
+      render();
+      changed();
+    }
   });
   return {
-    current: (): DrawingTemplate | undefined =>
-      fields === undefined ? undefined : { version: 1, name: name.value.trim(), fields },
+    current,
+    commit(template: DrawingTemplate, save: boolean): string | undefined {
+      if (save && !saveTemplate(template)) return status.textContent || '模板保存失败。';
+      if (!save) {
+        options();
+        choice.add(new Option('本图自定义版式', 'draft'));
+        choice.value = 'draft';
+        status.textContent = '已应用到本图。';
+      }
+      applyTemplate(template);
+      changed();
+      return undefined;
+    },
     reset(usePreferred: boolean) {
       const index = usePreferred ? library.findIndex((template) => template.name === preferredName) : -1;
+      choice.querySelector('option[value="draft"]')?.remove();
       choice.value = index < 0 ? '' : String(index);
       extras.textContent = '';
       applyTemplate(library[index]);

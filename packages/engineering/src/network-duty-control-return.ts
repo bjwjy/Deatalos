@@ -4,12 +4,13 @@ import { hasControlDrain } from './network-duty-control-valves.js';
 import { pipeParameters, reportReturnPipe, type ReturnPipeResult } from './network-duty-return-pipes.js';
 
 export const pressurizedControlDrainCondition =
-  '减压阀或顺序阀的 Y 口可经理想支路接同一油箱的主回油取压点，按零流量压力参考。换向阀排油工作位按理想通路，串联管和附件按缸排油量计损。Y 压力取油箱压力加接点下游压降，缸背压计入全程损失。非零 Y 泄流、并联回油、其他压力源与动态切换待核。';
+  '减压阀或顺序阀的 Y 口可经理想支路接同一油箱的主回油取压点，按零流量压力参考。换向阀排油工作位按理想通路，串联管和附件按缸排油量计损。Y 压力取油箱压力加接点下游压降，缸背压计入全程损失。给出本工况从 P 口分出的净 Y 泄流时，独立管按泄流计损，合流段按缸排油与泄流之和计损。未标定的非零泄流、并联回油、其他压力源与动态切换待核。';
 
 export interface ControlDrainBoundary {
   readonly pressurePa: number;
   readonly reference: 'tank' | 'return';
   readonly coupled: boolean;
+  readonly leakM3PerS?: number;
   readonly pipeDropPa: number;
   readonly pipes: readonly ReturnPipeResult[];
 }
@@ -67,6 +68,19 @@ export function pressurizedControlDrainPipeEligible(project: NetworkProject, con
   const graph = dutyPhasePaths(project, { name: 'Y 回油管', valves: [], actions: [] }, false);
   if (!graph.ok || !graph.value.uniquePath(tank.id + ':T', pump.id + ':S')?.every((arc) => arc.ideal)) return false;
   const route = controlReturnPath(project, graph.value, control, valve.id + ':T', tank.id + ':T');
+  if (!route) {
+    const main = graph.value.uniquePath(valve.id + ':T', tank.id + ':T'),
+      y = graph.value.uniquePath(control.id + ':Y', tank.id + ':T');
+    if (!main || !y) return false;
+    const arcs = [...main, ...y];
+    if (
+      arcs.some((a) => !a.ideal && !a.physicalPipe) ||
+      project.design.connections.some((e) => e.kind === 'pipe' && !arcs.some((a) => a.physicalPipe === e))
+    )
+      return false;
+    const pipe = arcs.find((a) => a.physicalPipe?.id === connectionId)?.physicalPipe;
+    return !!pipe && pipeParameters(project, pipe, '主回油或 Y 支管').ok;
+  }
   const pipe = route?.find((arc) => arc.physicalPipe?.id === connectionId)?.physicalPipe;
   return pipe !== undefined && pipeParameters(project, pipe, 'Y 取压回油管').ok;
 }
@@ -83,6 +97,7 @@ export function resolveControlDrain(
     readonly returnBasePa: number;
     readonly efficiency: number;
     readonly returnFlow: number;
+    readonly drainLeak?: number;
     readonly seriesDrops: readonly DutyPressureDrop[];
   },
 ): Result<ControlDrainBoundary> {
@@ -101,6 +116,64 @@ export function resolveControlDrain(
   });
   const cylinderReturn = paths.uniquePath(input.outlet, tank);
   const yDirect = paths.idealReachable(y, tank);
+  if (input.drainLeak !== undefined) {
+    if (input.efficiency !== 1 || Math.abs(input.returnBasePa - tankPa) > 1e-6)
+      return fail('给定 Y 泄流时缸容积效率须为 1，回油基准取油箱压力。');
+    const yRoute = paths.uniquePath(y, tank);
+    const at =
+      cylinderReturn?.findIndex((a) => a.component?.typeId === 'valve' && a.to === a.component.id + ':T') ?? -1;
+    if (
+      !yRoute ||
+      !cylinderReturn ||
+      at < 0 ||
+      input.seriesDrops.length ||
+      !cylinderReturn.slice(0, at).every((a) => a.ideal)
+    )
+      return fail('已知 P→Y 泄流要求明确缸回油和泄油通路，主路附件需另核。');
+    const main = cylinderReturn.slice(at + 1);
+    const routes = [...main, ...yRoute];
+    if (
+      routes.some((a) => !a.ideal && !a.physicalPipe) ||
+      project.design.connections.some((e) => e.kind === 'pipe' && !routes.some((a) => a.physicalPipe === e))
+    )
+      return fail('给定 Y 泄流仅支持独立串联管及与主排油合流的管段。');
+    const pipes = new Map<string, ReturnPipeResult>();
+    const sum = (route: typeof main): Result<number> => {
+      let p = tankPa;
+      for (const a of [...route].reverse()) {
+        const pipe = a.physicalPipe;
+        if (!pipe) continue;
+        const mainFlow = main.find((x) => x.physicalPipe === pipe),
+          drainFlow = yRoute.find((x) => x.physicalPipe === pipe);
+        if (mainFlow && drainFlow && mainFlow.from !== drainFlow.from) return fail('公共回油段流向不一致。');
+        const role = mainFlow && drainFlow ? '主回油与 Y 合流段' : drainFlow ? 'Y 独立泄油段' : '主回油段';
+        const law = pipeParameters(project, pipe, role);
+        if (!law.ok) return law;
+        const q = (mainFlow ? input.returnFlow : 0) + (drainFlow ? (input.drainLeak ?? 0) : 0);
+        const row = reportReturnPipe(law.value, q, p, role);
+        if (!row.ok) return row;
+        p = row.value.upstreamPressurePa;
+        pipes.set(pipe.id, row.value);
+      }
+      return { ok: true, value: p };
+    };
+    const mainP = sum(main),
+      yP = sum(yRoute);
+    if (!mainP.ok) return mainP;
+    if (!yP.ok) return yP;
+    if (Math.max(mainP.value, yP.value) > 70e6) return fail('压力超过核算范围。');
+    return {
+      ok: true,
+      value: {
+        pressurePa: yP.value,
+        reference: yDirect ? 'tank' : 'return',
+        leakM3PerS: input.drainLeak,
+        coupled: true,
+        pipeDropPa: mainP.value - tankPa,
+        pipes: [...pipes.values()],
+      },
+    };
+  }
   if (yDirect && cylinderReturn && !cylinderReturn.some((arc) => arc.physicalPipe))
     return { ok: true, value: { pressurePa: tankPa, reference: 'tank', coupled: false, pipeDropPa: 0, pipes: [] } };
   if (pump.definition.id !== 'teaching:pump' || !paths.uniquePath(tank, pump.id + ':S')?.every((arc) => arc.ideal))
@@ -113,7 +186,7 @@ export function resolveControlDrain(
   const route = controlReturnPath(project, paths, component, tPort, tank);
   if (!route)
     return fail(
-      'Y 泄油口须经理想支路接同一油箱或唯一主回油通路的已知压力点。断开、独立有损 Y 支管、回油旁路或其他物理管接法待核。',
+      'Y 泄油口须经理想支路接同一油箱或唯一主回油通路的已知压力点。断开、独立有损 Y 支管、回油旁路或其他物理管接法待核。独立有损支管须填写同工况的 P→Y 实测净泄流，零泄流也须明确。',
     );
   if (input.efficiency !== 1 || Math.abs(input.returnBasePa - tankPa) > 1e-6)
     return fail('有压 Y 回油要求缸容积效率为 1，回油基础压力填油箱压力，避免重复计损。');

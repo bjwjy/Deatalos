@@ -646,7 +646,8 @@
             >
             <label>模板名称<input id="formal-template-name" maxlength="60" value="自定义图框" /></label>
             <div class="formal-template-actions">
-              <button id="formal-template-edit" type="button">自定义字段</button>
+              <button id="frame-designer-open" type="button" class="dialog-primary">图形化编辑图框</button>
+              <button id="formal-template-edit" type="button">列表编辑</button>
               <button id="formal-template-add" type="button">增加字段</button>
               <button id="formal-template-save" type="button">保存命名模板</button>
             </div>
@@ -678,6 +679,139 @@
             本次填写随导出来源归档，不自动改写工程。原理图归档到图纸目录，计算书Word/PDF归档到计算书目录。Word可选排版公式或文档内LaTeX源码文本，PDF计算书按公式、代入和结果排版。完整输入、假设和来源与原计算记录一致。保存取消后保留填写，关闭后清空。源和成品均受4MB限制。
           </p>
         </details>
+      </div>
+    </dialog>
+    <dialog id="frame-designer" class="v13-dialog" aria-labelledby="frame-designer-title">
+      <div class="dialog-head">
+        <h2 id="frame-designer-title">图形化编辑图框</h2>
+        <button type="button" id="frame-cancel">取消</button>
+      </div>
+      <div class="frame-workspace">
+        <section class="frame-preview-pane" aria-label="图框预览">
+          <div class="frame-toolbar-wrap">
+            <div class="frame-toolbar">
+              <div class="frame-table-tools">
+                <button id="table-insert" type="button" aria-expanded="false">插入表格 ▾</button
+                ><button id="table-convert" type="button">编辑现有格线</button>
+              </div>
+              <div>
+                <button id="frame-detail" type="button" aria-pressed="true">标题栏</button
+                ><button id="frame-page" type="button" aria-pressed="false">整张图纸</button>
+              </div>
+            </div>
+            <div id="table-picker" hidden>
+              <strong id="table-picker-caption">插入表格</strong>
+              <div id="table-grid" role="group" aria-label="选择行数和列数"></div>
+              <div class="table-dimensions">
+                <label>行数<input id="table-rows" type="number" min="1" max="18" value="3" /></label
+                ><label>列数<input id="table-cols" type="number" min="1" max="45" value="4" /></label
+                ><button type="button" id="table-create">插入</button>
+              </div>
+            </div>
+          </div>
+          <div id="frame-stage">
+            <div id="frame-block">
+              <div id="frame-lines"></div>
+              <div id="frame-targets" role="group" aria-label="点选标题栏字段"></div>
+            </div>
+            <div id="frame-sheet" hidden></div>
+          </div>
+          <p id="frame-preview-note" role="status"></p>
+        </section>
+        <section class="frame-properties" aria-label="图框设置">
+          <div id="frame-legacy-controls">
+            <label
+              >每行字段数<select id="frame-columns">
+                <option value="4">四列</option>
+                <option value="3">三列</option>
+                <option value="2">两列</option>
+              </select></label
+            >
+            <label>选中字段<select id="frame-field"></select></label>
+            <label>字段名称<input id="frame-label" maxlength="40" /></label>
+            <label class="frame-check"><input type="checkbox" id="frame-visible" />在图框中显示</label>
+            <div class="frame-actions">
+              <button type="button" id="frame-prev">前移</button><button type="button" id="frame-next">后移</button
+              ><button type="button" id="frame-add">添加字段</button>
+            </div>
+          </div>
+          <div id="table-inspector" hidden>
+            <b id="table-selection">单元格</b>
+            <label><span id="table-text-label">固定文字</span><input id="table-text" maxlength="160" /></label>
+            <div id="table-keep-panel" hidden>
+              <label>合并后保留<select id="table-keep"></select></label
+              ><button type="button" id="table-merge-confirm">确认合并</button>
+            </div>
+            <div class="table-dimensions">
+              <label>格宽 mm<input id="table-width" type="number" step="0.01" min="4" max="180" /></label>
+              <label>格高 mm<input id="table-height" type="number" step="0.01" min="3" max="56" /></label>
+            </div>
+          </div>
+          <div class="frame-font-field">
+            <label for="table-font-size">字号（pt）</label>
+            <div class="frame-font-control">
+              <select id="table-font-presets" aria-label="选择预设字号">
+                <option>自动</option>
+                <option>6</option>
+                <option>8</option>
+                <option>9</option>
+                <option>10</option>
+                <option>10.5</option>
+                <option>12</option>
+                <option>14</option>
+                <option>16</option>
+                <option>18</option>
+                <option>20</option>
+                <option>24</option>
+                <option>28</option>
+                <option>36</option>
+                <option>48</option>
+                <option>72</option>
+              </select>
+              <input
+                id="table-font-size"
+                placeholder="自动"
+                aria-label="字号（pt）"
+                inputmode="decimal"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+          <label>模板名称<input id="frame-name" maxlength="60" /></label>
+          <p id="frame-status" role="status"></p>
+        </section>
+      </div>
+      <div id="table-menu" role="menu" aria-label="单元格操作" hidden>
+        <div class="table-menu-group" role="group" aria-label="单元格">
+          <span aria-hidden="true">单元格</span
+          ><button type="button" role="menuitem" data-action="single">仅选此格</button>
+          <button type="button" role="menuitem" data-action="merge" id="table-merge">合并选中单元格</button>
+          <button type="button" role="menuitem" data-action="up">向上合并</button>
+          <button type="button" role="menuitem" data-action="down">向下合并</button>
+          <button type="button" role="menuitem" data-action="split" id="table-split">拆分单元格…</button>
+          <button type="button" role="menuitem" data-action="size">设置格宽和格高…</button>
+          <button type="button" role="menuitem" data-action="font">设置字号…</button>
+        </div>
+        <div class="table-menu-group" role="group" aria-label="行列">
+          <span aria-hidden="true">行列</span
+          ><button type="button" role="menuitem" data-action="row" id="table-row">在下方插入行</button>
+          <button type="button" role="menuitem" data-action="col" id="table-col">在右侧插入列</button>
+          <button type="button" role="menuitem" data-action="del-row" id="table-del-row">删除行</button>
+          <button type="button" role="menuitem" data-action="del-col" id="table-del-col">删除列</button>
+        </div>
+        <div class="table-menu-group" role="group" aria-label="编辑记录">
+          <span aria-hidden="true">编辑记录</span
+          ><button type="button" role="menuitem" data-action="undo" id="frame-undo">撤销</button>
+          <button type="button" role="menuitem" data-action="redo" id="frame-redo">重做</button>
+        </div>
+      </div>
+      <div class="frame-footer">
+        <div class="frame-file-actions">
+          <button type="button" id="frame-import">导入图框…</button>
+          <button type="button" id="frame-export">导出图框…</button>
+        </div>
+        <button type="button" id="frame-store">另存为模板并应用</button
+        ><button type="button" class="dialog-primary" id="frame-apply">应用到本图</button>
       </div>
     </dialog>
     <dialog id="formal-title-editor" class="v13-dialog" aria-labelledby="formal-title-editor-heading">
@@ -1186,8 +1320,8 @@
               元件库统一从“换向阀”进入，先选通数，再选位数；符号预览下方点击各位图形，展开后用滚轮浏览机能。二/三位、二至五通可独立配置，三通含五种、四通含十五种连通拓扑，五通R为第二回油口。收藏使用当前名称，保存到本机元件库；星标、折角和粗边框表示常用收藏，点击或拖放可生成独立实例。收藏不修改当前工程，新建取消不放置元件。未运行或暂停时双击已有阀可调整，应用可撤销；有接线的油口不能直接移除。旧阀未改变机能/类型/开口时保持原模型；明确改变后采用新准静态模型。三口及以上互通使用零储油内部汇流点，各支路开口为所填等效两口面积的√2倍；无泄漏，不模拟阀芯惯性、过渡开口或气蚀。
             </p>
             <p>
-              泵属性可勾选内置溢流，真实从P回流到S，以实际P−S压差开启。默认3 MPa、最大开口1e-5
-              m²、流量系数0.67均为可改的教学假设，容量不足仍会超压保护；不是无限限压。开启后自动步长6.25 μs，可选3.125
+              泵属性可勾选内置溢流，真实从P回流到S，以实际P−S压差开启。新建泵默认16 MPa、最大开口10
+              mm²、流量系数0.67均为可改的教学假设，容量不足仍会超压保护；不是无限限压。开启后自动步长6.25 μs，可选3.125
               μs，含电机时沿更严格限制。实际泄放流量与同源导出共用结果；尺寸初选暂不支持内置溢流，请先关闭进行初选，再开启验证。
             </p>
             <p>
@@ -1272,6 +1406,15 @@
       </div>
     </dialog>
     <footer class="status statusbar">
+      <div
+        id="initializationProgress"
+        role="progressbar"
+        aria-label="仿真初始化进度"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow="0"
+        hidden
+      ></div>
       <p id="status" role="status">空白工程。先添加元件并建立物理连接。</p>
       <div class="canvas-status">
         <button id="fitAll" title="适合全图（Home）">适合全图</button

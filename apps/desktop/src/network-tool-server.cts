@@ -215,7 +215,12 @@ export class NetworkToolServer {
         send(400, parsed);
         return;
       }
-      if ((parsed.value.method === 'simulate' || parsed.value.method === 'export_batch_prepare') && !verifiedTarget) {
+      if (
+        (parsed.value.method === 'simulate' ||
+          parsed.value.method === 'export_batch_prepare' ||
+          parsed.value.method === 'export_batch_retry') &&
+        !verifiedTarget
+      ) {
         send(403, failure('TARGET_REQUIRED', '此操作需要核验已保存的目标工程。'));
         return;
       }

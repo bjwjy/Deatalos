@@ -1,5 +1,5 @@
 import { checkJson, ContractReader, diagnostic, immutable, type Result } from '@hyd/domain';
-import { networkResultView, displayNetworkQuantity } from '@hyd/engineering';
+import { networkResultView, displayNetworkQuantity, type NetworkResultView } from '@hyd/engineering';
 import { type NetworkExportCapture, exportNetworkCsv } from './network-export.js';
 import { networkRecordMaximum } from './network-records.js';
 import { csvCell } from './export-csv.js';
@@ -203,6 +203,25 @@ export function reduceCurveSamples(
   return { ok: true, value: immutable({ indices: [...keep].sort((a, b) => a - b), mandatoryCount, maximumError }) };
 }
 
+export function projectCurveSample(
+  view: NetworkResultView,
+  target: CurveRequest['target'],
+  index: number,
+): CurveSample {
+  const q = view.quantities.find(
+    (v) => v.objectKind === target.objectKind && v.objectId === target.objectId && v.field === target.field,
+  );
+  const display = q ? displayNetworkQuantity(q) : null;
+  return {
+    index,
+    timeS: view.point.identity.timeS,
+    tick: view.point.identity.tick,
+    value: display?.value.kind === 'known' ? display.value.value : null,
+    si: q?.value.kind === 'known' ? q.value.value : null,
+    reason: q ? (q.value.kind === 'known' ? '' : q.value.kind + ':' + q.value.reason) : 'QUANTITY_UNAVAILABLE',
+  };
+}
+
 export function planNetworkCurve(capture: NetworkExportCapture, input: unknown): Result<CurvePlan> {
   const parsed = parseCurveRequest(input);
   if (!parsed.ok) return parsed;
@@ -247,18 +266,7 @@ export function planNetworkCurve(capture: NetworkExportCapture, input: unknown):
         q ? (q.value.kind === 'known' ? '' : q.value.kind + ':' + q.value.reason) : 'QUANTITY_UNAVAILABLE',
       );
     }
-    const q = view.value.quantities.find(
-      (v) => v.objectKind === target.objectKind && v.objectId === target.objectId && v.field === target.field,
-    );
-    const display = q ? displayNetworkQuantity(q) : null;
-    samples.push({
-      index,
-      timeS: point.identity.timeS,
-      tick: point.identity.tick,
-      value: display?.value.kind === 'known' ? display.value.value : null,
-      si: q?.value.kind === 'known' ? q.value.value : null,
-      reason: q ? (q.value.kind === 'known' ? '' : q.value.kind + ':' + q.value.reason) : 'QUANTITY_UNAVAILABLE',
-    });
+    samples.push(projectCurveSample(view.value, target, index));
   }
   const mandatory: number[] = [];
   for (const key of request.keys) {

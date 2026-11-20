@@ -1,5 +1,6 @@
 import {
   ContractReader,
+  networkDisplacementRange,
   checkJson,
   diagnostic,
   networkValvePositions,
@@ -25,9 +26,11 @@ import {
 } from './network-duty.js';
 import type { DutyPhasePaths } from './network-duty-accessories.js';
 import {
+  physicalSeries,
   pipeParameters,
-  reportReturnPipe,
-  returnPipeLoss,
+  seriesParameters,
+  seriesDrop,
+  seriesReport,
   type ReturnPipeResult,
 } from './network-duty-return-pipes.js';
 
@@ -51,23 +54,23 @@ const fail = (message: string): Result<never> => ({
 });
 
 export const combinedSupplyConditions = [
-  '多台定量泵从同一油箱吸油，各经独立 A→B 止回阀接理想母线。普通双作用缸或定量马达各用独立四通阀，采用保存的阀口及给定的 T 侧等效背压。',
+  '多台定量泵从各自明确的固定压力油箱吸油，各经独立 A→B 止回阀接理想母线。普通双作用缸或定量马达各用独立四通阀，采用保存的阀口及给定的 T 侧等效背压。',
   '各泵零压供流按排量、核算转速和输入容积效率估计。压力相关线性泄漏及有限直动溢流另计，输入效率勿再重复扣除这部分泄漏。',
   '每泵零压供流等于入母线流量、压力泄漏和本泵溢流之和。母线流量等于各执行器进油和母线溢流之和。轴功率按本泵压差乘零压供流再除以输入总效率估计，止回阀关闭时仍可有溢流和轴功率。',
   '预算只作校核。缸容积效率取 1，定量马达用输入效率估计转矩与流量，目标速度允差 ±1%。变量调节、动态换向和有损公共干线另验。',
 ] as const;
 
 const unloadingConditions = [
-  '大泵止回阀前接卸荷阀 P，T 直回同一油箱，X 在止回阀后取母线压力。先导压差为母线压力减油箱压力。',
-  '各工况按卸荷阀初始关闭、压力上升独立核算。达到动作压差后改算全开孔口。仅当新稳态压差高于复位压差时维持卸荷，否则标明待核。回差区内的历史状态、切换瞬态和有损公共干线另验。',
-  '卸荷回箱按大泵出口与油箱压差和保存阀口面积计算。每泵零压供流等于入母线流量与本泵总回箱量之和。总回箱量包括卸荷、局部溢流和压力泄漏。轴功率按各泵出口与油箱的压差乘零压供流，再除以总效率估计。',
+  '大泵止回阀前接卸荷阀 P，T 直回压力明确的油箱，X 在止回阀后取母线压力。先导压差取 X 实际接点压力减 T 口油箱压力。',
+  '各工况按卸荷阀初始关闭、压力上升独立核算。达到动作压差后改算全开孔口。仅当新稳态压差高于复位压差时维持卸荷，否则标明待核。回差区内的历史状态、切换瞬态另验。',
+  '卸荷回箱按大泵出口与油箱压差和保存阀口面积计算。每泵零压供流等于入母线流量与本泵总回箱量之和。总回箱量包括卸荷、局部溢流和压力泄漏。轴功率按各泵出口与自身吸油箱的压差乘零压供流，再除以总效率估计。',
 ] as const;
 
 const lossyBusConditions = [
-  '限双定量泵、同一油箱。各泵经独立 A→B 止回阀汇合，再经一段物理母线供普通双作用缸。吸油、回油及下游分配为理想连接。',
+  '限双定量泵、一个回油箱，各泵独立确定吸油压力。各泵经独立 A→B 止回阀汇合，再经串联物理母线供普通双作用缸。吸油、回油及下游分配为理想连接。',
   '止回阀取母线入口压力。按母线实际流量、保存管径、长度、粗糙度、K 和油液参数计损。计入下游溢流，上游汇合点附加溢流待核。',
-  '零压供流由排量、转速及容积效率估计，等于入母线流量、本泵泄漏和溢流之和。轴功率取泵压差乘零压供流再除以总效率。',
-  '采用保存阀口及给定背压，缸容积效率取 1，速度允差 ±1%，预算只作校核。有损吸油、空化、并联管、卸荷混接及瞬态待核。',
+  '零压供流由排量、转速及容积效率估计，等于入母线流量、本泵泄漏、溢流和卸荷回箱之和。轴功率取泵压差乘零压供流再除以总效率。',
+  '采用保存阀口及给定背压，缸容积效率取 1，速度允差 ±1%，预算只作校核。有损吸油、空化、并联管、油位变化及瞬态待核。',
 ] as const;
 
 export function isCombinedSupplyCandidate(project: NetworkProject): boolean {
@@ -111,9 +114,10 @@ interface PumpIdentity {
   readonly pumpId: string;
   readonly label: string;
   readonly estimatedSupplyM3PerS?: number;
+  readonly displacementM3PerRev?: number;
 }
 export type CombinedPumpResult =
-  | (PumpIdentity & { readonly kind: 'pending'; readonly reason: string })
+  | (PumpIdentity & { readonly kind: 'pending'; readonly reason: string; readonly zeroDelivery?: true })
   | (PumpIdentity & {
       readonly kind: 'solved';
       readonly valveLabel: string;
@@ -123,7 +127,10 @@ export type CombinedPumpResult =
       readonly busFlowM3PerS: number;
       readonly localReliefM3PerS: number;
       readonly leakageM3PerS: number;
+      readonly suctionPa?: number;
+      readonly suctionTank?: string;
       readonly unloading?: {
+        readonly tapLabel?: string;
         readonly valveId: string;
         readonly label: string;
         readonly open: boolean;
@@ -148,6 +155,8 @@ export type CombinedDutyPhase =
       readonly name: string;
       readonly busPa: number;
       readonly supplyPipe?: ReturnPipeResult;
+      readonly supplySegments?: readonly ReturnPipeResult[];
+      readonly returnTank?: string;
       readonly busReliefM3PerS: number;
       readonly loads: readonly CombinedLoadResult[];
       readonly targetWindow:
@@ -177,10 +186,16 @@ export interface CombinedDutyCoverage {
   readonly pendingPhases: readonly DutyPendingPhase[];
   readonly hasUnloading?: true;
   readonly hasSupplyPipe?: true;
+  readonly hasVariablePump?: true;
 }
 
 export function combinedDutyConditions(coverage: CombinedDutyCoverage): readonly string[] {
-  if (coverage.hasSupplyPipe) return lossyBusConditions;
+  if (coverage.hasVariablePump)
+    return [
+      '一台定量泵与一台变量泵经各自止回阀合流，变量泵按工况指令在最小至最大排量间线性给定。两泵按各自供流、泄漏、局部溢流和止回压差联立。轴功率按泵压差乘扣泄漏前流量除以总效率，速度允差 ±1%。限理想母线和稳态。 ',
+    ];
+  if (coverage.hasSupplyPipe)
+    return coverage.hasUnloading ? [...lossyBusConditions, ...unloadingConditions] : lossyBusConditions;
   return coverage.hasUnloading
     ? [
         ...combinedSupplyConditions.slice(0, 2),
@@ -198,7 +213,10 @@ interface PumpLaw {
   readonly identity: PumpIdentity;
   readonly input: PumpInput;
   readonly supply: number;
+  readonly variableRange?: { min: number; max: number };
   readonly leakage: number;
+  readonly suctionPa: number;
+  readonly suctionTank: string;
   readonly check: NetworkComponent;
   readonly crack: number;
   readonly resistance: number;
@@ -206,6 +224,8 @@ interface PumpLaw {
 }
 
 interface UnloadingLaw {
+  readonly tapIndex: number;
+  readonly tapLabel: string;
   readonly pumpId: string;
   readonly valve: NetworkComponent;
   readonly tripDifferentialPa: number;
@@ -301,50 +321,59 @@ function topology(project: NetworkProject) {
     valve = valves[0];
   if (
     pumps.length < 2 ||
-    tanks.length !== 1 ||
+    tanks.length > 2 ||
     !tank ||
     !actuators.length ||
     valves.length !== actuators.length ||
     !valve ||
     parts.some((p) => !supported.has(p.typeId))
   )
-    return fail('合流要求至少两台定量泵、一个油箱，普通双作用缸或定量马达各用一只四通换向阀。');
+    return fail('合流要求至少两台定量泵、一至两个明确压力的油箱，普通双作用缸或定量马达各用一只四通换向阀。');
   const pipes = project.design.connections.filter((edge) => edge.kind === 'pipe');
   if (checks.length !== pumps.length || project.design.connections.some((edge) => edge.kind === 'signal'))
     return fail('要求每泵各有一只止回阀，缺少止回阀或存在信号连线待核。');
-  if (
-    pipes.length &&
-    (pipes.length !== 1 || pumps.length !== 2 || actuators.some((part) => part.typeId !== 'cylinder'))
-  )
-    return fail('有损合流限双定量泵、一段供油母线及普通双作用缸，其他物理管及有损吸油或回油待核。');
-  if (pumps.some((p) => p.definition.id !== 'teaching:pump')) return fail('变量泵或未登记定量泵的供流规律待核。');
-  const tankPressurePa = tank.parameters.hydraulic?.pressurePa;
-  if (tankPressurePa === undefined) return fail('油箱压力缺失。');
+  if (pipes.length && (pumps.length !== 2 || actuators.some((part) => part.typeId !== 'cylinder')))
+    return fail('有损合流限双定量泵、唯一串联供油母线及普通双作用缸，其他物理管及有损吸油或回油待核。');
+  const mixed =
+    pumps.length === 2 &&
+    pumps.filter((p) => p.definition.id === 'teaching:variable-pump').length === 1 &&
+    !pipes.length &&
+    !parts.some((p) => p.typeId === 'pilot-unloading-valve');
+  if (pumps.some((p) => p.definition.id !== 'teaching:pump' && !(mixed && networkDisplacementRange(p))))
+    return fail('变量泵或未登记定量泵的供流规律待核。');
   const raw = dutyPhasePaths(project, { name: '母线拓扑', valves: [], actions: [] }, false);
   if (!raw.ok) return raw;
   const ideal = raw.value.idealReachable;
-  const t = tank.id + ':T',
+  if (tanks.some((a, i) => tanks.slice(i + 1).some((b) => ideal(a.id + ':T', b.id + ':T'))))
+    return fail('油箱固定压力边界相通，无法唯一分配回箱流量或兼容不同压力。');
+  const tankAt = (port: string) => tanks.find((a) => ideal(port, a.id + ':T'));
+  const returnTank = tankAt(valve.id + ':T');
+  const tankPressurePa = returnTank?.parameters.hydraulic?.pressurePa;
+  if (!returnTank || tankPressurePa === undefined) return fail('换向阀 T 口回油箱或其保存压力不明确。');
+  const t = returnTank.id + ':T',
     bus = valve.id + ':P';
-  const busPipe = pipes[0];
-  const checkOutlet = busPipe
-    ? checks.find((check) => raw.value.uniquePath(check.id + ':B', bus)?.some((arc) => arc.physicalPipe === busPipe))
-    : undefined;
-  const header = checkOutlet ? checkOutlet.id + ':B' : bus;
-  if (busPipe && (!checkOutlet || ideal(header, bus)))
-    return fail('供油母线 [' + busPipe.id + '] 须串联在止回阀共同汇合点和各换向阀 P 口之间，旁路和断路待核。');
-  const pipeLaw = busPipe ? pipeParameters(project, busPipe, '供油母线') : undefined;
-  if (pipeLaw && !pipeLaw.ok) return pipeLaw;
+  const header = pipes.length ? checks[0]?.id + ':B' : bus;
+  const series = physicalSeries(raw.value, header, bus);
+  if (!series || series.length !== pipes.length)
+    return fail(
+      '供油母线 [' +
+        pipes.map((pipe) => pipe.id).join('、') +
+        '] 须串联在止回阀共同汇合点和各换向阀 P 口之间，旁路和断路待核。',
+    );
   if (
-    ideal(bus, t) ||
-    ideal(header, t) ||
+    tanks.some((a) => ideal(header, a.id + ':T') || ideal(bus, a.id + ':T')) ||
     valves.some((v) => !ideal(bus, v.id + ':P') || !ideal(v.id + ':T', t)) ||
-    pumps.some((p) => !ideal(p.id + ':S', t))
+    pumps.some((p) => !tankAt(p.id + ':S'))
   )
-    return fail('各换向阀 P 口须接同一理想母线，母线与油箱隔离，各泵 S 口和换向阀 T 口须经理想油路回同一油箱。');
+    return fail('各换向阀必须接同一供油母线和明确的回油箱，各泵 S 口必须连接唯一吸油箱。');
   const upstream = pumps.map((p) => p.id + ':P');
   if (
     upstream.some(
-      (p, i) => ideal(p, bus) || ideal(p, header) || ideal(p, t) || upstream.slice(i + 1).some((q) => ideal(p, q)),
+      (p, i) =>
+        ideal(p, bus) ||
+        ideal(p, header) ||
+        tanks.some((a) => ideal(p, a.id + ':T')) ||
+        upstream.slice(i + 1).some((q) => ideal(p, q)),
     )
   )
     return fail('各泵出口必须在各自止回阀前独立，不能直连母线、油箱或另一台泵。');
@@ -365,12 +394,24 @@ function topology(project: NetworkProject) {
   )
     return fail('卸荷组合目前只核算两台泵、一只普通双作用缸和一只外控卸荷阀。');
   if (unloader) {
-    if (busPipe) return fail('外控卸荷与有损母线混接需要明确取压侧，当前待核。');
     const port = unloader.id;
     const large = pumps.find((p) => ideal(p.id + ':P', port + ':P'));
     const small = pumps.find((p) => p !== large);
-    if (!large || !small || !ideal(port + ':T', t) || !ideal(port + ':X', bus))
-      return fail(label(unloader) + ' 接线待核。P 须接大泵止回阀前，T 直回同一油箱，X 接止回阀后的供油母线。');
+    const tap = physicalSeries(raw.value, port + ':X', bus);
+    const tapIndex = tap ? series.length - tap.length : -1;
+    const onBus =
+      tap &&
+      tapIndex >= 0 &&
+      tap.every((pipe, i) => series[tapIndex + i]?.id === pipe.id) &&
+      (tapIndex === 0
+        ? ideal(port + ':X', header)
+        : tapIndex === series.length
+          ? ideal(port + ':X', bus)
+          : raw.value.uniquePath(header, port + ':X')?.filter((a) => a.physicalPipe).length === tapIndex);
+    const drainTank = tankAt(port + ':T');
+    const drainPa = drainTank?.parameters.hydraulic?.pressurePa;
+    if (!large || !small || drainPa === undefined || !onBus)
+      return fail(label(unloader) + ' 接线待核。P 须接大泵止回阀前，T 直回压力明确的油箱，X 接止回阀后的供油母线。');
     const largeDisplacement = large.parameters.hydraulic?.displacementM3PerRev;
     const smallDisplacement = small.parameters.hydraulic?.displacementM3PerRev;
     if (largeDisplacement === undefined || smallDisplacement === undefined || largeDisplacement <= smallDisplacement)
@@ -388,10 +429,18 @@ function topology(project: NetworkProject) {
     unloading = {
       pumpId: large.id,
       valve: unloader,
+      tapIndex,
+      tapLabel: !series.length
+        ? '理想母线'
+        : tapIndex === 0
+          ? '母线入口'
+          : tapIndex === series.length
+            ? '母线出口'
+            : '第 ' + tapIndex + ' 段出口',
       tripDifferentialPa: h.tripPressurePa,
       resetDifferentialPa: h.resetPressurePa,
       orifice: {
-        startPa: tankPressurePa,
+        startPa: drainPa,
         resistance: orificeResistance(density, h.flowCoefficient, h.maximumAreaM2),
       },
     };
@@ -403,7 +452,7 @@ function topology(project: NetworkProject) {
     if (
       !owner ||
       part.definition.id !== 'teaching:relief' ||
-      !ideal(part.id + ':T', t) ||
+      tankAt(part.id + ':T')?.parameters.hydraulic?.pressurePa === undefined ||
       h?.settingDifferentialPa === undefined ||
       !h.maximumAreaM2 ||
       !h.flowCoefficient
@@ -411,20 +460,21 @@ function topology(project: NetworkProject) {
       return fail(label(part) + ' 须为泵出口或母线取压并直回油箱的有限直动溢流阀。');
     const list = reliefs.get(owner) ?? [];
     list.push({
-      startPa: tankPressurePa + h.settingDifferentialPa,
+      startPa: (tankAt(part.id + ':T')?.parameters.hydraulic?.pressurePa ?? NaN) + h.settingDifferentialPa,
       resistance: orificeResistance(density, h.flowCoefficient, h.maximumAreaM2),
     });
     reliefs.set(owner, list);
   }
   return {
     ok: true as const,
-    value: { bus, t, tankPressurePa, checkByPump, reliefs, valves, actuators, unloading, supplyPipe: pipeLaw?.value },
+    value: { bus, t, tankPressurePa, checkByPump, reliefs, valves, actuators, unloading, tankAt, returnTank, series },
   };
 }
 
 export function combinedDutyPipeEligible(project: NetworkProject, connectionId: string): boolean {
   const layout = topology(project);
-  return layout.ok && layout.value.supplyPipe?.connectionId === connectionId;
+  const selected = layout.ok && layout.value.series.find((pipe) => pipe.id === connectionId);
+  return !!selected && pipeParameters(project, selected, '供油母线').ok;
 }
 
 function solvePhase(
@@ -433,7 +483,10 @@ function solvePhase(
   layout: Extract<ReturnType<typeof topology>, { ok: true }>['value'],
   pumps: readonly PumpLaw[],
 ): Result<CombinedDutyPhase> {
-  const { bus, t, tankPressurePa, reliefs, valves, actuators, unloading, supplyPipe } = layout;
+  const { bus, t, tankPressurePa, reliefs, valves, actuators, unloading } = layout;
+  const parsed = seriesParameters(project, layout.series, '供油母线');
+  if (!parsed.ok) return parsed;
+  const pipeLaws = parsed.value;
   if (
     !phase.actions.length ||
     phase.valves.length !== valves.length ||
@@ -445,10 +498,28 @@ function solvePhase(
     phase.shutoffs?.length ||
     phase.flowSplit ||
     phase.dividerEnd ||
-    phase.pumpCommandPercent !== undefined ||
+    (phase.pumpCommandPercent !== undefined && !pumps.some((p) => p.variableRange)) ||
+    phase.loadSenseMarginPa !== undefined ||
+    phase.switchPrevious !== undefined ||
     phase.pumpPressureControl
   )
     return fail('请明确本工况参与动作和各四通换向阀位置。');
+  const variable = pumps.find((p) => p.variableRange);
+  if (variable?.variableRange) {
+    if (phase.pumpCommandPercent === undefined) return fail('变量泵与定量泵合流须给本工况变量泵排量指令（0～100%）。');
+    const range = variable.variableRange;
+    const displacement = range.min + ((range.max - range.min) * phase.pumpCommandPercent) / 100;
+    const supply = (displacement * variable.input.speed * variable.input.etaV) / (2 * Math.PI);
+    pumps = pumps.map((p) =>
+      p === variable
+        ? {
+            ...p,
+            supply,
+            identity: { ...p.identity, estimatedSupplyM3PerS: supply, displacementM3PerRev: displacement },
+          }
+        : p,
+    );
+  }
   const graph = dutyPhasePaths(project, phase, false, true);
   if (!graph.ok) return graph;
   if (
@@ -466,6 +537,16 @@ function solvePhase(
       ['A', 'B'].some((port) => graph.value.reachable(bus, part.id + ':' + port)),
   );
   if (unlisted) return fail(label(unlisted) + ' 未纳入本工况但有母线供油通路，请纳入动作或切换至隔离阀位。');
+  if (
+    project.design.components
+      .filter((c) => c.typeId === 'tank')
+      .some(
+        (a) =>
+          graph.value.reachable(bus, a.id + ':T') ||
+          pumps.some((p) => graph.value.reachable(p.identity.pumpId + ':P', a.id + ':T')),
+      )
+  )
+    return fail('供油直接连通油箱，固定压力边界冲突。');
   const load = combinedLoads(project, phase, graph.value, layout);
   if (!load.ok) return load;
   const branches = load.value;
@@ -481,8 +562,19 @@ function solvePhase(
   };
   const pumpAt = (pump: PumpLaw, busPa: number, bypassOpen: boolean) => {
     const openingThresholdPa = busPa + pump.crack;
+    // A zero source and forward-only outlets impose zero flow. Its trapped pressure is not observable.
+    if (pump.supply === 0)
+      return {
+        openingThresholdPa,
+        outletPa: 0,
+        busFlowM3PerS: 0,
+        leakageM3PerS: 0,
+        localReliefM3PerS: 0,
+        bypassFlowM3PerS: 0,
+        residual: 0,
+      };
     const check = { startPa: openingThresholdPa, resistance: pump.resistance };
-    const leakage = (p: number) => pump.leakage * (p - tankPressurePa);
+    const leakage = (p: number) => pump.leakage * Math.max(0, p - pump.suctionPa);
     const bypass = (p: number) =>
       bypassOpen && unloading?.pumpId === pump.identity.pumpId ? orificeFlow(p, unloading.orifice) : 0;
     const residual = (p: number) => orificeFlow(p, check) + local(pump, p) + leakage(p) + bypass(p) - pump.supply;
@@ -490,7 +582,7 @@ function solvePhase(
     const outletPa =
       pump.leakage === 0 && !bypassOpen && pump.reliefs.every((item) => item.startPa >= freeOutlet)
         ? freeOutlet
-        : equilibrium(tankPressurePa, freeOutlet, residual);
+        : equilibrium(0, freeOutlet, residual);
     return {
       openingThresholdPa,
       outletPa,
@@ -503,7 +595,8 @@ function solvePhase(
   };
   const busRelief = (p: number) => (reliefs.get(bus) ?? []).reduce((sum, relief) => sum + orificeFlow(p, relief), 0);
   const demandFlow = (p: number) => loadFlow(p) + busRelief(p);
-  const headerAt = (p: number) => (supplyPipe ? p + returnPipeLoss(supplyPipe, demandFlow(p)).pressureDropPa : p);
+  const headerAt = (p: number) => p + seriesDrop(pipeLaws, demandFlow(p));
+  const pilotAt = (p: number) => p + seriesDrop(pipeLaws.slice(unloading?.tapIndex ?? 0), demandFlow(p));
   const total = pumps.reduce((sum, pump) => sum + pump.supply, 0);
   const residual = (p: number, bypassOpen: boolean) =>
     demandFlow(p) - pumps.reduce((sum, pump) => sum + pumpAt(pump, headerAt(p), bypassOpen).busFlowM3PerS, 0);
@@ -526,14 +619,19 @@ function solvePhase(
   // Match the native latch: trip at the rising threshold and reset at or below the falling threshold.
   const pressureTolerance = 1e-6;
   const closed = balance(false);
-  const tripPa = unloading && tankPressurePa + unloading.tripDifferentialPa;
+  const tripPa = unloading && unloading.orifice.startPa + unloading.tripDifferentialPa;
+  const thresholdOutlet =
+    !closed.ok && tripPa !== undefined && pilotAt(pressureMax) >= tripPa
+      ? equilibrium(tankPressurePa, pressureMax, (p) => pilotAt(p) - tripPa)
+      : undefined;
   const bypassOpen =
     tripPa !== undefined &&
     tripPa <= pressureMax &&
     (closed.ok
-      ? !closed.value.isolated && closed.value.busPa >= tripPa - pressureTolerance
-      : residual(tripPa, false) < -total * 1e-8 &&
-        pumps.every((pump) => pumpAt(pump, tripPa, false).outletPa <= pressureMax));
+      ? !closed.value.isolated && pilotAt(closed.value.busPa) >= tripPa - pressureTolerance
+      : thresholdOutlet !== undefined &&
+        residual(thresholdOutlet, false) < -total * 1e-8 &&
+        pumps.every((pump) => pumpAt(pump, headerAt(thresholdOutlet), false).outletPa <= pressureMax));
   const operating = bypassOpen ? balance(true) : closed;
   if (!operating.ok) {
     if (!bypassOpen) return operating;
@@ -542,12 +640,14 @@ function solvePhase(
     );
   }
   const { busPa, actual, isolated } = operating.value;
-  const pilotDifferentialPa = busPa - tankPressurePa;
+  const pilotDifferentialPa = pilotAt(busPa) - (unloading?.orifice.startPa ?? tankPressurePa);
   if (unloading && isolated) return fail('两泵止回阀均关闭，母线压力待核，无法确定卸荷阀能否保持。');
   if (bypassOpen && unloading && pilotDifferentialPa <= unloading.resetDifferentialPa + pressureTolerance)
     return fail(
       (closed.ok
-        ? '关闭态试算先导压差 ' + Number(((closed.value.busPa - tankPressurePa) / 1e6).toPrecision(6)) + ' MPa，达到'
+        ? '关闭态试算先导压差 ' +
+          Number(((pilotAt(closed.value.busPa) - unloading.orifice.startPa) / 1e6).toPrecision(6)) +
+          ' MPa，达到'
         : '关闭态试算达到') +
         '动作压差 ' +
         unloading.tripDifferentialPa / 1e6 +
@@ -567,6 +667,13 @@ function solvePhase(
       localReliefM3PerS,
       bypassFlowM3PerS,
     }): CombinedPumpResult => {
+      if (pump.supply === 0)
+        return {
+          ...pump.identity,
+          kind: 'pending',
+          zeroDelivery: true,
+          reason: '零排量，止回无正向通流。止回阀前困油压力及该泵压力预算待核。',
+        };
       const open = busFlowM3PerS > 0;
       const stage = unloading?.pumpId === pump.identity.pumpId ? unloading : undefined;
       const limit =
@@ -578,14 +685,14 @@ function solvePhase(
       const shaftPowerW =
         pump.input.etaTotal === undefined
           ? undefined
-          : ((outletPa - tankPressurePa) * pump.supply) / pump.input.etaTotal;
+          : ((outletPa - pump.suctionPa) * pump.supply) / pump.input.etaTotal;
       const checkReason = open
         ? unloading
           ? ''
-          : supplyPipe
+          : pipeLaws.length
             ? '泵出口超过开启门槛。'
             : '泵出口压力超过母线压力与开启压差之和。'
-        : supplyPipe
+        : pipeLaws.length
           ? '泵出口未超过开启门槛，止回阀关闭。'
           : '母线背压与开启压差之和高于或等于泵出口压力，止回阀关闭。泵流量经本泵溢流或泄漏回箱。';
       const reason =
@@ -598,6 +705,8 @@ function solvePhase(
         ...pump.identity,
         kind: 'solved',
         valveLabel: label(pump.check),
+        suctionPa: pump.suctionPa,
+        suctionTank: pump.suctionTank,
         open,
         outletPa,
         ...(isolated ? {} : { openingThresholdPa }),
@@ -608,6 +717,7 @@ function solvePhase(
           ? {
               unloading: {
                 valveId: stage.valve.id,
+                tapLabel: stage.tapLabel,
                 label: label(stage.valve),
                 open: bypassOpen,
                 flowM3PerS: bypassFlowM3PerS,
@@ -628,6 +738,8 @@ function solvePhase(
       };
     },
   );
+  if (actual.some((p) => p.pump.supply > 0 && p.outletPa < p.pump.suctionPa - 1e-6))
+    return fail('泵出口低于本泵吸油箱压力，反向功率及倒灌稳态待核。');
   if (isolated)
     return {
       ok: true,
@@ -646,8 +758,8 @@ function solvePhase(
     const ratio = flowM3PerS / target.targetFlowM3PerS;
     return { ...target, flowM3PerS, speed: ratio * target.targetSpeed, matchesTarget: Math.abs(ratio - 1) <= 0.01 };
   });
-  const pipeReport = supplyPipe && reportReturnPipe(supplyPipe, demandFlow(busPa), busPa, '供油母线');
-  if (pipeReport && !pipeReport.ok) return pipeReport;
+  const pipeReport = seriesReport(pipeLaws, demandFlow(busPa), busPa, '供油母线');
+  if (!pipeReport.ok) return pipeReport;
   const minimumPa = Math.max(
     tankPressurePa,
     ...branches.map((branch) => branch.startPa + branch.resistance * (0.99 * branch.target.targetFlowM3PerS) ** 2),
@@ -659,14 +771,15 @@ function solvePhase(
   const first = loads[0];
   const matchesTarget =
     loads.every((item) => item.matchesTarget) &&
-    actual.every((p) => p.pump.input.budget !== undefined && p.outletPa <= p.pump.input.budget);
+    actual.every((p) => p.pump.supply > 0 && p.pump.input.budget !== undefined && p.outletPa <= p.pump.input.budget);
   return {
     ok: true,
     value: {
       kind: 'solved',
       name: phase.name,
       busPa,
-      ...(pipeReport ? { supplyPipe: pipeReport.value } : {}),
+      ...(pipeReport.value.length ? { supplyPipe: pipeReport.value[0], supplySegments: pipeReport.value } : {}),
+      returnTank: layout.returnTank.id,
       busReliefM3PerS: busRelief(busPa),
       loads,
       targetWindow:
@@ -733,7 +846,7 @@ export function reviewCombinedDuty(project: NetworkProject, input: unknown): Res
   const pumpNotes: CombinedPumpResult[] = [];
   for (const pump of allPumps) {
     const identity = { pumpId: pump.id, label: label(pump) };
-    if (pump.definition.id !== 'teaching:pump') {
+    if (pump.definition.id !== 'teaching:pump' && !networkDisplacementRange(pump)) {
       pumpNotes.push({ ...identity, kind: 'pending', reason: '该泵缺少本模型支持的定量供流规律。' });
       continue;
     }
@@ -746,14 +859,14 @@ export function reviewCombinedDuty(project: NetworkProject, input: unknown): Res
       });
       continue;
     }
-    const displacement = pump.parameters.hydraulic?.displacementM3PerRev;
+    const displacement = networkDisplacementRange(pump)?.max ?? pump.parameters.hydraulic?.displacementM3PerRev;
     const leakage = pump.parameters.hydraulic?.leakageM3PerSPa;
     const supply =
       displacement === undefined
         ? undefined
         : ((displacement * source.value.speed) / (2 * Math.PI)) * source.value.etaV;
     const known =
-      supply !== undefined && supply > 0 && Number.isFinite(supply)
+      !networkDisplacementRange(pump) && supply !== undefined && supply > 0 && Number.isFinite(supply)
         ? { ...identity, estimatedSupplyM3PerS: supply }
         : identity;
     const check = layout.ok ? layout.value.checkByPump.get(pump.id) : undefined;
@@ -780,6 +893,12 @@ export function reviewCombinedDuty(project: NetworkProject, input: unknown): Res
     }
     const density = project.design.fluid.densityKgPerM3;
     const reliefs = [...(layout.value.reliefs.get(pump.id + ':P') ?? [])];
+    const suctionTank = layout.value.tankAt(pump.id + ':S');
+    const suctionPa = suctionTank?.parameters.hydraulic?.pressurePa;
+    if (!suctionTank || suctionPa === undefined) {
+      pumpNotes.push({ ...known, kind: 'pending', reason: '泵吸油箱压力缺失。' });
+      continue;
+    }
     const internal = pump.parameters.relief;
     if (internal?.enabled === 1) {
       if (internal.settingDifferentialPa === undefined || !internal.maximumAreaM2 || !internal.flowCoefficient) {
@@ -787,12 +906,15 @@ export function reviewCombinedDuty(project: NetworkProject, input: unknown): Res
         continue;
       }
       reliefs.push({
-        startPa: layout.value.tankPressurePa + internal.settingDifferentialPa,
+        startPa: suctionPa + internal.settingDifferentialPa,
         resistance: orificeResistance(density, internal.flowCoefficient, internal.maximumAreaM2),
       });
     }
     laws.push({
+      ...(networkDisplacementRange(pump) ? { variableRange: networkDisplacementRange(pump)! } : {}),
       identity: known,
+      suctionPa,
+      suctionTank: suctionTank.id,
       input: source.value,
       supply,
       leakage,
@@ -825,6 +947,7 @@ export function reviewCombinedDuty(project: NetworkProject, input: unknown): Res
     value: {
       phases,
       pendingPhases: duty.value.pendingPhases,
+      ...(allPumps.some((p) => networkDisplacementRange(p)) ? { hasVariablePump: true as const } : {}),
       ...(hasUnloading ? { hasUnloading: true } : {}),
       ...(hasSupplyPipe ? { hasSupplyPipe: true } : {}),
     },

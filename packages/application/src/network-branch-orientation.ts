@@ -39,6 +39,7 @@ export function orientBranch(
   const ids = new Set([branch.from, branch.to].flatMap((end) => (end.kind === 'port' ? [end.componentId] : [])));
   let best: { value: OrientedBranch; improvement: number } | null = null;
   for (const id of ids) {
+    if (project.design.components.some((component) => component.id === id && component.typeId === 'tank')) continue;
     const placement = project.layout.components.find((p) => p.componentId === id);
     const incident = project.design.connections.filter((e) => owns(e.from, id) || owns(e.to, id));
     if (

@@ -1,3 +1,7 @@
+import { serviceMode, serviceStudies, type ServiceInput } from './network-duty-calibrated.js';
+import type { TransientInput } from './network-duty-transient.js';
+import { loadStudies, type LoadStudy } from './network-duty-overrunning.js';
+import { sourceControlMode, sourceControlConditions } from './network-duty-source-control.js';
 import {
   checkJson,
   checkNetworkParameterRules,
@@ -43,7 +47,7 @@ import {
   controlValveDutyConditions,
   controlValveModelConditions,
   dutyControlValveTypes,
-  estimateDutyControlValve,
+  estimateSeriesControlValves,
   hasControlDrain,
 } from './network-duty-control-valves.js';
 import { pressurizedControlDrainCondition, resolveControlDrain } from './network-duty-control-return.js';
@@ -116,7 +120,23 @@ export interface DutyPhase {
   readonly filterBypass?: DutyFilterBypassSetting;
   readonly dividerEnd?: { readonly componentId: string; readonly pressurePa: number };
   readonly pumpCommandPercent?: number;
+  readonly loadSenseMarginPa?: number;
+  readonly switchPrevious?: 'on' | 'off';
   readonly pumpPressureControl?: DutyPumpPressureControl;
+  readonly loadStudy?: LoadStudy;
+  readonly minimumInletPa?: number;
+  readonly service?: ServiceInput;
+  readonly transient?: TransientInput;
+  readonly drainLeakM3PerS?: number;
+  readonly pumpStorage?: true;
+  readonly resetStudy?: { readonly sweptM3?: number; readonly flowM3PerS?: number; readonly backPa?: number };
+  readonly cycleThermal?: {
+    readonly capacity?: number;
+    readonly conductance?: number;
+    readonly ambient?: number;
+    readonly initial?: number;
+    readonly cycles?: number;
+  };
   readonly accumulatorOilVolumeM3?: number;
   readonly accumulatorTargetOilVolumeM3?: number;
   readonly shutoffs?: readonly (
@@ -153,6 +173,10 @@ export interface DutyBoundaryDemand {
   readonly boundaryAssessment: {
     readonly summary: string;
     readonly satisfied: boolean;
+    readonly controlPending?: true;
+    readonly loadPending?: true;
+    readonly transientStudy?: true;
+    readonly study?: 'reset' | 'cycle';
     readonly transfer?: 'timed' | 'blocked' | 'pending';
   };
   readonly flowSplit?: never;
@@ -240,6 +264,8 @@ export interface DutyComponentLimit {
   readonly reason: string;
 }
 export interface NetworkDutyCoverage {
+  readonly hasServiceStudy?: true;
+  readonly transientScope?: 'only' | 'mixed';
   readonly phases: readonly DutyPhaseCoverage[];
   readonly componentLimits: readonly DutyComponentLimit[];
   readonly complete: boolean;
@@ -343,6 +369,12 @@ function dutyComponentReason(
 function dutyComponentLimits(document: NetworkProject, request: NetworkDutyRequest | null): DutyComponentLimit[] {
   const boundary = dutyExternalMotorBoundary(document, request);
   return document.design.components.flatMap((component) => {
+    if (
+      request?.phases.every((p) => p.pumpStorage) &&
+      ['accumulator', 'adjustable-pressure-switch', 'pilot-unloading-valve'].includes(component.typeId)
+    )
+      return [];
+    if (component.typeId === 'pressure-source' && request && sourceControlMode(document, request)) return [];
     if (request?.boundary && ['pressure-source', 'accumulator', 'pressure-intensifier'].includes(component.typeId))
       return [];
     const reason = dutyComponentReason(document, component, request, boundary);
@@ -376,9 +408,91 @@ function readDutyPhases(r: ContractReader, input: unknown, boundary = false): re
       'dividerEnd',
       'pumpCommandPercent',
       'pumpPressureControl',
+      'loadSenseMarginPa',
+      'switchPrevious',
+      'loadStudy',
+      'minimumInletPa',
+      'pumpStorage',
+      'drainLeakM3PerS',
+      'transient',
+      'service',
+      'resetStudy',
+      'cycleThermal',
       'accumulatorOilVolumeM3',
       'accumulatorTargetOilVolumeM3',
     ]);
+    const loadStudy = Object.keys(loadStudies).find((key): key is LoadStudy => key === phase.loadStudy);
+    if (phase.loadStudy !== undefined && !loadStudy) r.fail('DUTY_INVALID', p + '/loadStudy', '未知功率方向专项。');
+    if (phase.minimumInletPa !== undefined && loadStudy !== 'suction')
+      r.fail('DUTY_INVALID', p + '/minimumInletPa', '最低入口绝压仅用于吸油管。');
+    if (phase.pumpStorage !== undefined && phase.pumpStorage !== true)
+      r.fail('DUTY_INVALID', p, '定量泵储能标记须为 true。');
+    const inputs = (key: string, limits: Record<string, [number, number]>) => {
+      if (phase[key] === undefined) return undefined;
+      const raw = r.object(phase[key], p + '/' + key, Object.keys(limits));
+      return Object.fromEntries(
+        Object.entries(limits)
+          .filter(([k]) => raw[k] !== undefined)
+          .map(([k, [min, max]]) => [k, number(raw[k], p + '/' + key + '/' + k, min, max)]),
+      );
+    };
+    let service: ServiceInput | undefined;
+    if (phase.service !== undefined) {
+      const v = r.object(phase.service, p + '/service', ['mode', 'target', 'values']);
+      if (!serviceMode(v.mode)) r.fail('DUTY_INVALID', p + '/service/mode', '未知标定试验。');
+      else {
+        const fields = serviceStudies[v.mode].fields,
+          values = r.object(
+            v.values,
+            p + '/service/values',
+            fields.map((f) => f.key),
+          );
+        service = {
+          mode: v.mode,
+          target: r.text(v.target, p + '/service/target', 1, 160),
+          values: Object.fromEntries(
+            fields
+              .filter((f) => values[f.key] !== undefined)
+              .map((f) => [
+                f.key,
+                number(values[f.key], p + '/service/values/' + f.key, f.min * f.scale, f.max * f.scale),
+              ]),
+          ),
+        };
+        if (
+          Object.keys(phase).some((k) => !['name', 'valves', 'actions', 'service'].includes(k)) ||
+          r.array(phase.actions, p + '/actions', 32).length ||
+          r.array(phase.valves, p + '/valves', 64).length
+        )
+          r.fail('DUTY_INVALID', p + '/service', '标定试验须单列，不能同时指定阀位及其他工况命令。');
+      }
+    }
+    const transient = inputs('transient', {
+      windowS: [1e-4, 5],
+      switchAtS: [0, 5],
+      rampS: [0, 5],
+      cutoffPa: [1, 70e6],
+      bandPa: [1, 70e6],
+      responseS: [1e-5, 5],
+      finalAreaM2: [0, 1],
+    });
+    const resetStudy = inputs('resetStudy', { sweptM3: [0, 1], flowM3PerS: [0, 1], backPa: [0, 70e6] });
+    const cycleThermal = inputs('cycleThermal', {
+      capacity: [1e-12, 1e12],
+      conductance: [0, 1e8],
+      ambient: [-273, 2000],
+      initial: [-273, 2000],
+      cycles: [1, 1e9],
+    });
+    if (
+      cycleThermal &&
+      (!phase.pumpStorage || (cycleThermal.cycles !== undefined && !Number.isInteger(cycleThermal.cycles)))
+    )
+      r.fail('DUTY_INVALID', p, '循环热边界须配定量泵储能工况，循环次数须为整数。');
+    if (resetStudy && (!boundary || phase.accumulatorOilVolumeM3 !== undefined || phase.pumpStorage))
+      r.fail('DUTY_INVALID', p, '增压器复位须为独立工况。');
+    if (phase.switchPrevious !== undefined && phase.switchPrevious !== 'on' && phase.switchPrevious !== 'off')
+      r.fail('DUTY_INVALID', p + '/switchPrevious', '开关前态须为已动作或已复位。');
     if (phase.flowSplit !== undefined && phase.flowSplit !== true)
       r.fail('DUTY_INVALID', p + '/flowSplit', '实际分流标记须为 true 或省略。');
     const filterBypass =
@@ -495,11 +609,18 @@ function readDutyPhases(r: ContractReader, input: unknown, boundary = false): re
       actions.map((a) => a.componentId),
       p + '/actions',
     );
-    if (!actions.length && phase.accumulatorOilVolumeM3 === undefined)
+    if (
+      !actions.length &&
+      phase.accumulatorOilVolumeM3 === undefined &&
+      !resetStudy &&
+      !service &&
+      !transient &&
+      loadStudy !== 'suction'
+    )
       r.fail('DUTY_INVALID', p + '/actions', '每个工况须指定动作或蓄能器状态。');
     if (phase.accumulatorTargetOilVolumeM3 !== undefined && phase.accumulatorOilVolumeM3 === undefined)
       r.fail('DUTY_INVALID', p + '/accumulatorOilVolumeM3', '蓄能器充放油时间需要起始油量。');
-    if (phase.accumulatorTargetOilVolumeM3 !== undefined && !boundary)
+    if (phase.accumulatorTargetOilVolumeM3 !== undefined && !boundary && !phase.pumpStorage)
       r.fail('DUTY_INVALID', p + '/accumulatorTargetOilVolumeM3', '蓄能器充放油时间需要独立恒压边界。');
     if (shutoffs)
       r.unique(
@@ -510,6 +631,18 @@ function readDutyPhases(r: ContractReader, input: unknown, boundary = false): re
       name: r.text(phase.name, p + '/name', 1, 80),
       valves,
       actions,
+      ...(loadStudy ? { loadStudy } : {}),
+      ...(phase.minimumInletPa === undefined
+        ? {}
+        : { minimumInletPa: number(phase.minimumInletPa, p + '/minimumInletPa', Number.MIN_VALUE, 70e6) }),
+      ...(phase.pumpStorage === true ? { pumpStorage: true } : {}),
+      ...(phase.drainLeakM3PerS === undefined
+        ? {}
+        : { drainLeakM3PerS: number(phase.drainLeakM3PerS, p + '/drainLeakM3PerS', 0, 1) }),
+      ...(service ? { service } : {}),
+      ...(transient ? { transient } : {}),
+      ...(resetStudy ? { resetStudy } : {}),
+      ...(cycleThermal ? { cycleThermal } : {}),
       ...(shutoffs ? { shutoffs } : {}),
       ...(phase.flowSplit === true ? { flowSplit: true } : {}),
       ...(filterBypass
@@ -542,6 +675,12 @@ function readDutyPhases(r: ContractReader, input: unknown, boundary = false): re
               1,
             ),
           }),
+      ...(phase.loadSenseMarginPa === undefined
+        ? {}
+        : { loadSenseMarginPa: number(phase.loadSenseMarginPa, p + '/loadSenseMarginPa', Number.MIN_VALUE, 70e6) }),
+      ...(phase.switchPrevious === undefined
+        ? {}
+        : { switchPrevious: phase.switchPrevious === 'on' ? ('on' as const) : ('off' as const) }),
       ...(phase.pumpCommandPercent === undefined
         ? {}
         : { pumpCommandPercent: number(phase.pumpCommandPercent, p + '/pumpCommandPercent', 0, 100) }),
@@ -608,18 +747,18 @@ export function parseNetworkDutyRequest(input: unknown): Result<NetworkDutyReque
           .array(o.automaticFields, '/duty/automaticFields', 15000)
           .map((value, index) => r.text(value, '/duty/automaticFields/' + index, 1, 180));
   r.unique(automaticFields, '/duty/automaticFields');
+  const independentInputs = o.boundary === true || (phases.length > 0 && phases.every((p) => p.service));
   return r.finish({
     pumpId: r.id(o.pumpId, '/duty/pumpId'),
     ...(o.boundary === true ? { boundary: true as const } : {}),
-    angularSpeedRadPerS:
-      o.boundary === true ? 0 : number(o.angularSpeedRadPerS, '/duty/angularSpeedRadPerS', Number.MIN_VALUE, 5000),
-    pumpVolumetricEfficiency:
-      o.boundary === true
-        ? 1
-        : number(o.pumpVolumetricEfficiency, '/duty/pumpVolumetricEfficiency', Number.MIN_VALUE, 1),
-    totalEfficiency: o.boundary === true ? 1 : number(o.totalEfficiency, '/duty/totalEfficiency', Number.MIN_VALUE, 1),
-    pressureLimitPa:
-      o.boundary === true ? 0 : number(o.pressureLimitPa, '/duty/pressureLimitPa', Number.MIN_VALUE, 70e6),
+    angularSpeedRadPerS: independentInputs
+      ? 0
+      : number(o.angularSpeedRadPerS, '/duty/angularSpeedRadPerS', Number.MIN_VALUE, 5000),
+    pumpVolumetricEfficiency: independentInputs
+      ? 1
+      : number(o.pumpVolumetricEfficiency, '/duty/pumpVolumetricEfficiency', Number.MIN_VALUE, 1),
+    totalEfficiency: independentInputs ? 1 : number(o.totalEfficiency, '/duty/totalEfficiency', Number.MIN_VALUE, 1),
+    pressureLimitPa: independentInputs ? 0 : number(o.pressureLimitPa, '/duty/pressureLimitPa', Number.MIN_VALUE, 70e6),
     phases,
     automaticFields,
   });
@@ -736,18 +875,51 @@ export function reviewNetworkDuty(document: NetworkProject, input: NetworkDutyRe
   const splitPending = phases.some(
     (phase) =>
       phase.kind === 'calculated' &&
-      (phase.demand.flowSplit?.kind === 'pending' || phase.demand.boundaryAssessment?.transfer === 'pending'),
+      (phase.demand.flowSplit?.kind === 'pending' ||
+        phase.demand.boundaryAssessment?.transfer === 'pending' ||
+        phase.demand.boundaryAssessment?.controlPending ||
+        phase.demand.boundaryAssessment?.loadPending),
   );
-  const coverage: NetworkDutyCoverage = { phases, componentLimits, complete: completePlan !== null && !splitPending };
-  const conditions = request?.boundary
-    ? boundaryDutyConditions(document, request)
-    : dutyConditions(
-        document,
-        request?.phases.some((phase) => phase.flowSplit),
-        request === null ? false : hasDisplacementCommands(request),
-        request?.phases.some((phase) => phase.pumpPressureControl),
-      );
-  return { coverage, completePlan, steps, conditions };
+  const dynamic = request?.phases.filter((p) => p.transient) ?? [];
+  const other = request?.phases.filter((p) => !p.transient) ?? [];
+  const coverage: NetworkDutyCoverage = {
+    ...(request?.phases.some((p) => p.service) ? { hasServiceStudy: true as const } : {}),
+    phases,
+    componentLimits,
+    complete: completePlan !== null && !splitPending,
+    ...(dynamic.length ? { transientScope: other.length ? ('mixed' as const) : ('only' as const) } : {}),
+  };
+  const ordinaryConditions = (request: NetworkDutyRequest | null) => {
+    const mode = request && sourceControlMode(document, request);
+    return mode
+      ? sourceControlConditions(mode)
+      : request && (request.boundary || request.phases.some((p) => p.pumpStorage || p.loadStudy || p.transient))
+        ? boundaryDutyConditions(document, request)
+        : dutyConditions(
+            document,
+            request?.phases.some((phase) => phase.flowSplit),
+            request === null ? false : hasDisplacementCommands(request),
+            request?.phases.some((phase) => phase.pumpPressureControl),
+          );
+  };
+  const conditions =
+    dynamic.length && request
+      ? [
+          ...boundaryDutyConditions(document, { ...request, phases: dynamic }),
+          ...(other.length ? (ordinaryConditions({ ...request, phases: other }) ?? []) : []),
+        ]
+      : ordinaryConditions(request);
+  const supplements = (request?.phases ?? []).flatMap((p) =>
+    p.service ? [serviceStudies[p.service.mode].condition] : [],
+  );
+  return {
+    coverage,
+    completePlan,
+    steps,
+    conditions: supplements.length
+      ? [...new Set([...(request?.phases.every((p) => p.service) ? [] : (conditions ?? [])), ...supplements])]
+      : conditions,
+  };
 }
 function hasDisplacementCommands(request: NetworkDutyRequest): boolean {
   return request.phases.some(
@@ -779,6 +951,10 @@ function dutyConditions(
     ];
   if (parts.some((part) => dutyProtectionTypes.has(part.typeId))) return protectionDutyConditions;
   if (parts.some((part) => dutyDividerTypes.has(part.typeId))) return dividerDutyConditions;
+  if (parts.filter((part) => part.typeId === 'pilot-check').length === 2)
+    return [
+      '两阀 B 口分别接两缸腔，X 交叉取对侧阀 A 口。按给定目标速度核对自由进油压降和排油阀维持开启裕量，内泄参考本阀 A 口，外泄 Y 直回同箱。缸容积效率取 1，回油基础压力取排油阀 A 口，手填供油损失不含两只液控阀。起动瞬态、静态保压与余流分配待核。',
+    ];
   const splitAccessories = split && parts.some(isReturnTreeAccessory);
   const hasExternalPilot = parts.some((part) => part.definition.id === 'teaching:pilot-check');
   const valves = new Set(
@@ -896,6 +1072,29 @@ function calculateNetworkDuty(
   const hasPressureControl = req.phases.some((phase) => phase.pumpPressureControl);
   if (hasPressureControl && (purpose === 'sizing' || req.boundary))
     return fail('变量泵压力调节限校核当前设计，不能用于排量初选或其他供压边界。');
+  if (req.phases.some((p) => p.service))
+    return purpose === 'check' && req.phases.every((p) => p.service)
+      ? checkBoundaryDuty(project, req, phaseOffset)
+      : fail('标定试验逐工况出书，不提供泵排量初选。');
+  if (req.phases.some((p) => p.transient))
+    return purpose === 'check' && req.phases.every((p) => p.transient)
+      ? checkBoundaryDuty(project, req, phaseOffset)
+      : fail('瞬态工况须校核当前设计，不能用于泵排量初选。');
+  if (req.phases.some((p) => p.loadStudy))
+    return purpose === 'check' && req.phases.every((p) => p.loadStudy)
+      ? checkBoundaryDuty(project, req, phaseOffset)
+      : fail('功率方向和吸油专项须分工况校核当前设计。');
+  if (req.phases.some((p) => p.pumpStorage))
+    return purpose === 'check' && !req.boundary && req.phases.every((p) => p.pumpStorage)
+      ? checkBoundaryDuty(project, req, phaseOffset)
+      : fail('定量泵储能限独立校核当前设计。');
+  if (
+    sourceControlMode(project, req) ||
+    req.phases.some((p) => p.loadSenseMarginPa !== undefined || p.switchPrevious !== undefined)
+  )
+    return purpose === 'check' && sourceControlMode(project, req)
+      ? checkBoundaryDuty(project, req, phaseOffset)
+      : fail('负载敏感及多源稳态控制须在对应回路校核当前设计。');
   if (req.boundary)
     return purpose === 'check' ? checkBoundaryDuty(project, req, phaseOffset) : fail('恒压及储能边界限校核当前设计。');
   if (req.phases.some((phase) => phase.accumulatorOilVolumeM3 !== undefined))
@@ -974,7 +1173,9 @@ function calculateNetworkDuty(
       project.design.components.filter((part) => part.typeId === 'cylinder').length !== 1 ||
       project.design.components.filter((part) => part.typeId === 'valve').length !== 1 ||
       project.design.components.some((part) => !types.has(part.typeId)) ||
-      project.design.connections.some((edge) => edge.kind !== 'ideal') ||
+      project.design.connections.some(
+        (edge) => edge.kind !== 'ideal' && !(edge.kind === 'pipe' && protection.typeId === 'counterbalance'),
+      ) ||
       hasFlowSplit
     )
       return fail(
@@ -998,13 +1199,36 @@ function calculateNetworkDuty(
           ' 的通路判定限单定量泵、单油箱、单普通双作用缸及一只通路判定阀，混接和有损管待核。',
       );
   }
-  const externalPilot = multiPortValve?.definition.id === 'teaching:pilot-check' ? multiPortValve : undefined;
+  const crossPilot = multiPortValves.length === 2 && multiPortValves.every((part) => part.typeId === 'pilot-check');
+  if (
+    crossPilot &&
+    (hasAccessories ||
+      hasFlowSplit ||
+      tanks.length !== 1 ||
+      pump.definition.id !== 'teaching:pump' ||
+      project.design.components.filter((part) => part.typeId === 'valve').length !== 1 ||
+      project.design.components.some(
+        (part) => !['pump', 'tank', 'cylinder', 'valve', 'volume', 'relief', 'pilot-check'].includes(part.typeId),
+      ) ||
+      project.design.connections.some((edge) => edge.kind !== 'ideal'))
+  )
+    return fail('双阀交叉先导限单定量泵、单油箱、单四通阀与单普通双作用缸的理想主油路。');
+  const externalPilot =
+    !crossPilot && multiPortValve?.definition.id === 'teaching:pilot-check' ? multiPortValve : undefined;
   const filters = accessories.filter((part) => part.typeId === 'return-filter');
   const filter = filters[0];
-  if (controlValves.length > 1) return fail('本批稳态核算每个工程限单个减压阀、压力补偿调速阀或顺序阀。');
-  if (multiPortValve && (multiPortValves.length > 1 || controlValve || hasSpring))
+  if (
+    controlValves.length > 1 &&
+    (controlValves.length !== 2 ||
+      controlValves.some((c) => !hasControlDrain(c)) ||
+      hasAccessories ||
+      project.design.connections.some((e) => e.kind !== 'ideal') ||
+      req.phases.some((p) => p.drainLeakM3PerS !== undefined))
+  )
+    return fail('双压力阀限理想管路正向串联、两只 Y 口独立直回同箱。其他组合或逐阀泄流待核。');
+  if (multiPortValve && ((multiPortValves.length > 1 && !crossPilot) || controlValve || hasSpring))
     return fail(
-      '多口阀稳态限单只液控单向阀、三通溢流减压阀或三通调速阀。双阀交叉先导及与其他控制阀或单作用缸组合暂未纳入。',
+      '多口阀稳态限单只液控单向阀、三通溢流减压阀或三通调速阀。成对液控阀仅支持指定交叉先导接法，其他控制阀混接待核。',
     );
   if (
     multiPortValve &&
@@ -1536,6 +1760,7 @@ function calculateNetworkDuty(
             paths,
             {
               component: multiPortValve,
+              ...(crossPilot ? { pilotPartner: multiPortValves[1] } : {}),
               phaseName: phase.name,
               phaseIndex: index,
               pumpId: pump.id,
@@ -1617,6 +1842,7 @@ function calculateNetworkDuty(
           )
             return fail(phase.name + '：保护阀核算要求缸容积效率为 1，回油基准取油箱压力，其余供油压降填 0。');
           const result = estimateDutyProtection(
+            project,
             paths,
             {
               component: protection,
@@ -1647,6 +1873,8 @@ function calculateNetworkDuty(
           if (purpose === 'check' && Math.abs(available - required) > 1e-8 * required)
             supplyBalanceIssue = '固定泵供流与本工况目标工作点不匹配。已列目标点需求，实际缸速与主泵溢流联立待核。';
         }
+        if (phase.drainLeakM3PerS !== undefined && (!controlValve || !hasControlDrain(controlValve)))
+          return fail('给定 Y 泄流需一只减压阀或顺序阀。');
         const drain =
           controlValve && hasControlDrain(controlValve)
             ? resolveControlDrain(project, paths, {
@@ -1658,6 +1886,7 @@ function calculateNetworkDuty(
                 returnBasePa: action.returnPressurePa,
                 efficiency: action.volumetricEfficiency,
                 returnFlow: b * action.speed,
+                ...(phase.drainLeakM3PerS !== undefined ? { drainLeak: phase.drainLeakM3PerS } : {}),
                 seriesDrops: losses?.drops ?? [],
               })
             : undefined;
@@ -1665,29 +1894,38 @@ function calculateNetworkDuty(
         if (drain?.ok) {
           returnPipeDropPa = drain.value.pipeDropPa;
           returnPressure += returnPipeDropPa;
-          if (drain.value.coupled && purpose === 'check' && Math.abs(available - q) > q * 1e-8)
+          if (phase.drainLeakM3PerS !== undefined) {
+            pumpFlow = q + phase.drainLeakM3PerS;
+            flowReference = 'phase' + index + ':pump-with-drain';
+            add(flowReference, '阀 P 口所需总供流', 'Q缸+QY', pumpFlow, 'm³/s', [], 60000, 'L/min');
+          }
+          if (drain.value.coupled && purpose === 'check' && Math.abs(available - (pumpFlow ?? q)) > q * 1e-8)
             supplyBalanceIssue = '泵估计供流与目标缸流量不匹配。已列目标点需求，实际缸速及溢流分配待核。';
         }
         const chamberPressure = (action.resistingLoad / action.mechanicalEfficiency + returnPressure * b) / a;
         if (controlValve) {
-          const valve = estimateDutyControlValve(paths, {
-            component: controlValve,
-            phaseName: phase.name,
-            phaseIndex: index,
-            pumpId: pump.id,
-            tankId: tank.id,
-            actuatorInlet: inlet,
-            actuatorOutlet: outlet,
-            flowM3PerS: q,
-            cylinderPressurePa: chamberPressure,
-            downstreamLossPa: action.supplyLossPa,
-            downstreamLossSource: sourceFor(inputPath + 'supplyLossPa'),
-            seriesDrops: losses?.drops ?? [],
-            tankPressurePa: tankPressure,
-            ...(drain?.ok ? { drainBoundary: drain.value } : {}),
-            budgetPa: req.pressureLimitPa,
-            densityKgPerM3: project.design.fluid.densityKgPerM3,
-          });
+          const valve = estimateSeriesControlValves(
+            paths,
+            {
+              component: controlValve,
+              phaseName: phase.name,
+              phaseIndex: index,
+              pumpId: pump.id,
+              tankId: tank.id,
+              actuatorInlet: inlet,
+              actuatorOutlet: outlet,
+              flowM3PerS: q,
+              cylinderPressurePa: chamberPressure,
+              downstreamLossPa: action.supplyLossPa,
+              downstreamLossSource: sourceFor(inputPath + 'supplyLossPa'),
+              seriesDrops: losses?.drops ?? [],
+              tankPressurePa: tankPressure,
+              ...(drain?.ok ? { drainBoundary: drain.value } : {}),
+              budgetPa: req.pressureLimitPa,
+              densityKgPerM3: project.design.fluid.densityKgPerM3,
+            },
+            controlValves,
+          );
           if (!valve.ok) return valve;
           valveSupplyDropPa = valve.value.dropPa;
           supplyLoss += valveSupplyDropPa;

@@ -163,31 +163,41 @@ export function bindTitleEditor(
     grid.replaceChildren();
     const selected = template();
     const overrides = Object.fromEntries(titleCells);
-    const drawing = titleBlock(fields, changes, selected, undefined, overrides, (key, value, x, y, w, h, caption) => {
-      const source = editors.get(key);
-      const edit = document.createElement('input');
-      const label = caption ?? (source?.parentElement?.firstChild?.textContent?.trim() || key);
-      edit.setAttribute('aria-label', key.startsWith('更改') ? key.slice(0, 3) + ' ' + label : label);
-      edit.title = label;
-      edit.dataset.titleCell = key;
-      if (source) edit.placeholder = label;
-      edit.value = value;
-      edit.maxLength = key === 'stage' ? 4 : 160;
-      edit.style.left = (x / 180) * 100 + '%';
-      edit.style.top = (y / 56) * 100 + '%';
-      edit.style.width = (w / 180) * 100 + '%';
-      edit.style.height = (h / 56) * 100 + '%';
-      edit.addEventListener('input', () => {
-        if (source) {
-          source.value = edit.value;
-          source.dispatchEvent(new Event('input', { bubbles: true }));
-        } else {
-          titleCells.set(key, edit.value);
-          changed();
-        }
-      });
-      grid.append(edit);
-    });
+    const drawing = titleBlock(
+      fields,
+      changes,
+      selected,
+      undefined,
+      overrides,
+      (key, value, x, y, w, h, caption, points) => {
+        const source = editors.get(key);
+        const edit = document.createElement('input');
+        const label = caption ?? (source?.parentElement?.firstChild?.textContent?.trim() || key);
+        edit.setAttribute('aria-label', key.startsWith('更改') ? key.slice(0, 3) + ' ' + label : label);
+        edit.title = label;
+        edit.dataset.titleCell = key;
+        if (source) edit.placeholder = label;
+        edit.value = value;
+        if (typeof points === 'number') edit.style.fontSize = ((points * 25.4) / 72 / 180) * 100 + 'cqi';
+        edit.maxLength = key === 'stage' ? 4 : 160;
+        edit.style.left = (x / 180) * 100 + '%';
+        edit.style.top = (y / 56) * 100 + '%';
+        edit.style.width = (w / 180) * 100 + '%';
+        edit.style.height = (h / 56) * 100 + '%';
+        edit.addEventListener('input', () => {
+          if (source) {
+            source.value = edit.value;
+            for (const peer of grid.querySelectorAll<HTMLInputElement>('input[data-title-cell]'))
+              if (peer !== edit && peer.dataset.titleCell === key) peer.value = edit.value;
+            source.dispatchEvent(new Event('input', { bubbles: true }));
+          } else {
+            titleCells.set(key, edit.value);
+            changed();
+          }
+        });
+        grid.append(edit);
+      },
+    );
     if (!drawing.ok) return;
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('viewBox', '0 0 180 56');

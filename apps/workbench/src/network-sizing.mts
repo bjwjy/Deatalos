@@ -1,3 +1,4 @@
+import { bindEngineeringInputs } from './network-engineering-inputs.mjs';
 import {
   previewNetworkSizing,
   exportCalculationCsv,
@@ -9,11 +10,13 @@ import {
   type ExportArtifact,
 } from '@hyd/application';
 import type { CalculationRecord } from '@hyd/engineering';
-import { fromSI, toSI, type DisplayDiagnostic } from '@hyd/domain';
+import { engineeringValueText, networkDefinition, fromSI, toSI, type DisplayDiagnostic } from '@hyd/domain';
 import { element, escapeHtml as esc } from './network-dom.mjs';
 import { createNetworkDuty } from './network-duty.mjs';
 import {
   seedCalculationInput,
+  calculationUnitAttributes,
+  calculationInputNumber,
   markCalculationOverride,
   showCalculationIssues,
   calculationAdvice,
@@ -56,7 +59,8 @@ export function createNetworkSizing(hooks: SizingHooks) {
   let previous: NetworkDraftSession['document'] | null = null,
     sessionId = '',
     preview: NetworkSizingPreview | null = null;
-  root.innerHTML = `<label>计算项目<select id="sizingMode"><option value="existing">按现有回路核算需求（缸 / 马达）</option><option value="resize">单缸伸出尺寸初选</option></select></label><div id="basicDutyForm"></div><div id="sizingResize" hidden><p class="muted">只有此项目需要液压缸。已有行程/泵转速可带入；目标力、速度及效率仍需确认，预览不改工程。</p><label>目标液压缸<select id="sizingCylinder"></select></label><label>可选应用泵<select id="sizingPump"></select></label>${fields.map(([id, label, unit]) => '<label class="calculation-field"><span>' + label + ' <small>' + unit + '</small></span><input id="sizing-' + id + '" data-sizing-field="' + id + '" type="number" step="any" aria-label="' + label + '"><small data-field-source>本次要求，请明确填写</small></label>').join('')}<details><summary>本尺寸初选的固定假设</summary><p>供油余量1 MPa、背压0.5 MPa、缸机械效率0.95、杆/缸径比0.6及离散教学规格；不是原生模型的实际效率。缩回/共源多工况请使用需求核算。</p></details><button id="previewSizing">预览尺寸初选与过程</button><button id="cancelSizing" disabled>取消预览</button><button id="applySizing" disabled>应用到所选对象</button><button id="exportSizing" disabled>导出初选与过程 CSV</button><button id="wordSizing" disabled>导出计算书…</button><div id="sizingStatus" role="status"></div><div id="sizingPreview"></div></div>`;
+  root.innerHTML = `<label>计算项目<select id="sizingMode"><option value="existing">按现有回路核算需求（缸 / 马达）</option><option value="resize">单缸伸出尺寸初选</option></select></label><div id="basicDutyForm"></div><div id="sizingResize" hidden><p class="muted">只有此项目需要液压缸。已有行程/泵转速可带入；目标力、速度及效率仍需确认，预览不改工程。</p><label>目标液压缸<select id="sizingCylinder"></select></label><label>可选应用泵<select id="sizingPump"></select></label>${fields.map(([id, label, unit]) => '<label class="calculation-field"><span><span data-engineering-label>' + label + '</span> <small>' + unit + '</small></span><input ' + calculationUnitAttributes(unit) + ' id="sizing-' + id + '" data-sizing-field="' + id + '" type="number" step="any" aria-label="' + label + '"><small data-field-source>本次要求，请明确填写</small></label>').join('')}<details><summary>本尺寸初选的固定假设</summary><p>供油余量1 MPa、背压0.5 MPa、缸机械效率0.95、杆/缸径比0.6及离散教学规格；不是原生模型的实际效率。缩回/共源多工况请使用需求核算。</p></details><button id="previewSizing">预览尺寸初选与过程</button><button id="cancelSizing" disabled>取消预览</button><button id="applySizing" disabled>应用到所选对象</button><button id="exportSizing" disabled>导出初选与过程 CSV</button><button id="wordSizing" disabled>导出计算书…</button><div id="sizingStatus" role="status"></div><div id="sizingPreview"></div></div>`;
+  bindEngineeringInputs(element('sizingResize'));
   const existing = createNetworkDuty(
     { ...hooks, apply: hooks.applyDuty },
     { rootId: 'basicDutyForm', prefix: 'basic', mode: 'single' },
@@ -121,7 +125,7 @@ export function createNetworkSizing(hooks: SizingHooks) {
       return;
     }
     for (const field of root.querySelectorAll('[aria-invalid]')) field.removeAttribute('aria-invalid');
-    const value = (id: string) => input(id).valueAsNumber;
+    const value = (id: string) => calculationInputNumber(input(id));
     const result = previewNetworkSizing(hooks.editor(), {
       cylinderId: select('sizingCylinder').value,
       pumpId: select('sizingPump').value || null,
@@ -156,9 +160,21 @@ export function createNetworkSizing(hooks: SizingHooks) {
       return;
     }
     preview = result.value;
+    const document = hooks.editor().document;
+    const formatChange = (componentId: string, path: string, value: number) => {
+      const component = document.design.components.find((item) => item.id === componentId);
+      const [group, key] = path.split('.');
+      const unit =
+        component &&
+        group &&
+        networkDefinition(component.definition.id, component.definition.version)?.groups[group]?.find(
+          (spec) => spec.key === key,
+        )?.unit;
+      return unit ? engineeringValueText(value, unit, key) : String(value);
+    };
     const plan = preview.plan;
     element('sizingPreview').innerHTML =
-      `<h3>${esc(plan.record.title)}</h3><p>工程修订 ${preview.revision}；以下均为初选，不是仿真。</p><table class="metric-table"><tr><th>指定参数</th><th>原值 → 候选 SI 值</th></tr>${plan.changes.map((change) => '<tr><td>' + esc(change.componentId + '.' + change.parameter) + '</td><td>' + change.before + ' → ' + change.after + '</td></tr>').join('')}</table>${plan.record.steps.map((step) => '<details><summary>' + esc(step.label) + '：' + (step.display.value.kind === 'known' ? step.display.value.value.toPrecision(7) : '未知') + ' ' + esc(step.display.unit) + '</summary><p>' + esc(step.formula) + '</p><p>' + esc(step.substitution) + '</p><p>' + esc(step.display.conversion) + '</p></details>').join('')}<details><summary>范围与假设</summary>${plan.record.assumptions.map((text) => '<p>' + esc(text) + '</p>').join('')}</details>`;
+      `<h3>${esc(plan.record.title)}</h3><p>工程修订 ${preview.revision}；以下均为初选，不是仿真。</p><table class="metric-table"><tr><th>指定参数</th><th>原值 → 候选值</th></tr>${plan.changes.map((change) => '<tr><td>' + esc(change.componentId + '.' + change.parameter) + '</td><td>' + esc(formatChange(change.componentId, change.parameter, change.before)) + ' → ' + esc(formatChange(change.componentId, change.parameter, change.after)) + '</td></tr>').join('')}</table>${plan.record.steps.map((step) => '<details><summary>' + esc(step.label) + '：' + (step.display.value.kind === 'known' ? step.display.value.value.toPrecision(7) : '未知') + ' ' + esc(step.display.unit) + '</summary><p>' + esc(step.formula) + '</p><p>' + esc(step.substitution) + '</p><p>' + esc(step.display.conversion) + '</p></details>').join('')}<details><summary>范围与假设</summary>${plan.record.assumptions.map((text) => '<p>' + esc(text) + '</p>').join('')}</details>`;
     element('sizingPreview').scrollIntoView({ block: 'start' });
     for (const id of ['applySizing', 'cancelSizing', 'exportSizing', 'wordSizing'])
       element(id).removeAttribute('disabled');

@@ -30,6 +30,9 @@ namespace HydraulicTools
                 bool session = false;
                 bool context = false;
                 bool summary = false;
+                bool compare = false;
+                string[] cylinders = null;
+                long? fromTick = null;
                 string previewFile = null;
                 for (int i = 0; i < args.Length; i++)
                 {
@@ -38,6 +41,16 @@ namespace HydraulicTools
                     else if (args[i] == "--diagnose" && !diagnose) diagnose = true;
                     else if (args[i] == "--session" && !session) session = true;
                     else if (args[i] == "--context" && !context) context = true;
+                    else if (args[i] == "--compare-cylinders" && !compare) compare = true;
+                    else if (args[i] == "--cylinders" && cylinders == null && i + 2 < args.Length)
+                        cylinders = new[] { args[++i], args[++i] };
+                    else if (args[i] == "--from-tick" && !fromTick.HasValue && i + 1 < args.Length)
+                    {
+                        long tick;
+                        if (!Int64.TryParse(args[++i], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out tick) || tick > 9007199254740991L)
+                            throw ClientData.Fail("ARGUMENT_INVALID", "起始步须为非负安全整数。", "例如 --from-tick 80。");
+                        fromTick = tick;
+                    }
                     else if (args[i] == "--summary" && !summary) summary = true;
                     else if (args[i] == "--preview-file" && previewFile == null && i + 1 < args.Length) previewFile = args[++i];
                     else throw ClientData.Fail("ARGUMENT_INVALID", "客户端参数无效。", "使用 --project 绝对工程目录，JSON请求从stdin输入。");
@@ -46,11 +59,20 @@ namespace HydraulicTools
                     for (var current = new DirectoryInfo(Environment.CurrentDirectory); current != null; current = current.Parent)
                         if (File.Exists(Path.Combine(current.FullName, "工程.hydproj"))) { project = current.FullName; break; }
                 if (project == null) throw ClientData.Fail("PROJECT_REQUIRED", "未定位到文件夹工程。", "指定 --project 绝对目录；不要猜测其他打开的工程。");
-                if ((diagnose ? 1 : 0) + (session ? 1 : 0) + (context ? 1 : 0) + (previewFile != null ? 1 : 0) > 1)
-                    throw ClientData.Fail("ARGUMENT_INVALID", "诊断、持续连接、上下文和文件预览模式不能组合。", "每次选择一种模式。");
+                if ((diagnose ? 1 : 0) + (session ? 1 : 0) + (context ? 1 : 0) + (previewFile != null ? 1 : 0) + (compare ? 1 : 0) > 1)
+                    throw ClientData.Fail("ARGUMENT_INVALID", "诊断、持续连接、上下文、双缸比较和文件预览各自独立。", "每次选择一种模式。");
                 if (summary && !context && previewFile == null)
                     throw ClientData.Fail("ARGUMENT_INVALID", "摘要模式仅用于上下文读取或文件预览。", "使用 --context --summary 或 --preview-file <JSON绝对路径> --summary。");
+                if (!compare && (cylinders != null || fromTick.HasValue))
+                    throw ClientData.Fail("ARGUMENT_INVALID", "缸选择及起始步仅用于双缸比较。", "使用 --compare-cylinders。");
                 var connection = new ToolConnection(project, String.IsNullOrEmpty(directory) ? null : directory);
+                if (compare)
+                {
+                    var parameters = new Dictionary<string, object>();
+                    if (cylinders != null) parameters.Add("cylinderIds", cylinders);
+                    if (fromTick.HasValue) parameters.Add("fromTick", fromTick.Value);
+                    return Send(connection, ClientData.Json.Serialize(new { protocol = "HydraulicTools", version = 1, requestId = "cmp-" + Guid.NewGuid().ToString("N"), method = "cylinder_compare", @params = parameters }));
+                }
                 if (context || previewFile != null)
                 {
                     var workflow = new ToolWorkflow(connection);

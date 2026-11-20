@@ -2,6 +2,7 @@ import {
   captureNetworkExport,
   type NetworkExportCapture,
   type KernelServiceCommand,
+  type CylinderCondition,
   type NetworkRuntimeView,
   parseNetworkOnlineControlBatch,
 } from '@hyd/application';
@@ -56,7 +57,13 @@ export function createNetworkRuntime(hooks: RuntimeHooks, transport = { requestR
   let pollInFlight = false,
     firstCurvePending = false;
   let recordCapture: NetworkExportCapture | null = null;
-  let pendingInitialization: { readonly sessionId: string; readonly physicsRevision: number } | null = null;
+  let pendingInitialization: {
+    readonly sessionId: string;
+    readonly physicsRevision: number;
+    readonly sequence: number;
+    percent: number;
+    stage: string;
+  } | null = null;
   function initializing(): boolean {
     return (
       pendingInitialization?.sessionId === hooks.sessionId() &&
@@ -220,7 +227,13 @@ export function createNetworkRuntime(hooks: RuntimeHooks, transport = { requestR
       hooks.diagnostics(prepared.diagnostics, '初始化');
       return null;
     }
-    const owner = { sessionId: hooks.sessionId(), physicsRevision: hooks.physicsRevision() };
+    const owner = {
+      sessionId: hooks.sessionId(),
+      physicsRevision: hooks.physicsRevision(),
+      sequence: requestSequence + 1,
+      percent: 0,
+      stage: '准备仿真模型',
+    };
     pendingInitialization = owner;
     hooks.renderFeedback();
     try {
@@ -237,7 +250,14 @@ export function createNetworkRuntime(hooks: RuntimeHooks, transport = { requestR
           constraintPressureTolerancePa: 0.02,
         },
       });
-      if (initialized) physicsInvalidated = false;
+      if (initialized) {
+        physicsInvalidated = false;
+        if (pendingInitialization === owner && initializing()) {
+          owner.percent = 100;
+          owner.stage = '初始化完成';
+          hooks.renderFeedback();
+        }
+      }
       return initialized;
     } finally {
       if (pendingInitialization === owner) {
@@ -262,7 +282,7 @@ export function createNetworkRuntime(hooks: RuntimeHooks, transport = { requestR
       ? runtime
       : null;
   }
-  async function run(current: () => boolean, ticks?: number) {
+  async function run(current: () => boolean, ticks?: number, condition?: CylinderCondition) {
     hooks.clearDiagnostics();
     if (!hooks.document().design.components.length) {
       const failure = runtimeFailure('GRAPH_INCOMPLETE', '空白工程没有可运行的物理图。', '/design/components');
@@ -278,7 +298,7 @@ export function createNetworkRuntime(hooks: RuntimeHooks, transport = { requestR
     }
     if (!current()) return;
     let result: Awaited<ReturnType<typeof service>>;
-    const limit = ticks === undefined ? {} : { ticks };
+    const limit = ticks === undefined ? {} : { ticks, ...(condition ? { condition } : {}) };
     if (
       runtime?.identity?.simulationSessionId !== manualRecoverySession &&
       hooks.document().design.components.some((c) => c.typeId === 'dynamic-controller')
@@ -292,14 +312,20 @@ export function createNetworkRuntime(hooks: RuntimeHooks, transport = { requestR
     startPolling();
     return result;
   }
-  async function operateLimited(ticks: number, current: () => boolean): Promise<Result<NetworkRuntimeView>> {
+  async function operateLimited(
+    ticks: number,
+    current: () => boolean,
+    condition?: CylinderCondition,
+  ): Promise<Result<NetworkRuntimeView>> {
     if (!Number.isSafeInteger(ticks) || ticks < 1 || ticks > 10000)
       return runtimeFailure('CLOCK_INVALID', '有限运行需要1至10000个固定步。');
     if (!current()) return runtimeFailure('TOOL_RETIRED', '本次仿真授权已退役。');
     if (runtime?.running) return runtimeFailure('RUN_ALREADY_RUNNING', '当前已运行，请暂停并重新捕获后发起有限运行。');
     if (canRecover())
       return runtimeFailure('RECOVERY_REQUIRED', '先用运行命令恢复最后有效点并暂停，再重新捕获后发起有限运行。');
-    return (await run(current, ticks)) ?? runtimeFailure('SIMULATION_ACTION_FAILED', '有限运行未返回有效回执。');
+    return (
+      (await run(current, ticks, condition)) ?? runtimeFailure('SIMULATION_ACTION_FAILED', '有限运行未返回有效回执。')
+    );
   }
   async function pauseLimited(): Promise<void> {
     if (!readyRuntime()) return;
@@ -471,16 +497,39 @@ export function createNetworkRuntime(hooks: RuntimeHooks, transport = { requestR
     const documentSession = hooks.sessionId(),
       physicsRevision = hooks.physicsRevision();
     const selection = source ?? hooks.recordSelection();
+    const livePreview = selection === 'current' && runtime?.running && !source;
+    let lastPaint = performance.now();
     const captured = await captureNetworkExport(
       {
-        records: async (expectedIdentity, range) =>
-          await transport.requestRecords({
+        records: async (expectedIdentity, range) => {
+          // A pinned window is independent of ongoing advances. Let Chromium paint
+          // between live pages when replies have already consumed a frame budget.
+          if (
+            livePreview &&
+            range.offset > 0 &&
+            document.visibilityState === 'visible' &&
+            performance.now() - lastPaint >= 6
+          ) {
+            await new Promise<void>((resolve) => {
+              const timer = window.setTimeout(() => {
+                cancelAnimationFrame(frame);
+                resolve();
+              }, 32);
+              const frame = requestAnimationFrame(() => {
+                window.clearTimeout(timer);
+                resolve();
+              });
+            });
+            lastPaint = performance.now();
+          }
+          return transport.requestRecords({
             version: 2,
             clientSequence: ++requestSequence,
             action: 'records',
             expected: expectedIdentity,
             selection: range,
-          }),
+          });
+        },
       },
       identity,
       selection === 'current' ? null : selection,
@@ -489,6 +538,7 @@ export function createNetworkRuntime(hooks: RuntimeHooks, transport = { requestR
         capturedAt: new Date().toISOString(),
         appVersion: '0.9.0-e06',
       },
+      livePreview ? (recordCapture?.samples ?? []) : undefined,
     );
     if (documentSession !== hooks.sessionId() || physicsRevision !== hooks.physicsRevision()) return null;
     if (!captured.ok) {
@@ -600,6 +650,24 @@ export function createNetworkRuntime(hooks: RuntimeHooks, transport = { requestR
     pendingInitialization = null;
   }
   return {
+    get initializationProgress() {
+      return initializing() ? pendingInitialization : null;
+    },
+    reportInitialization(sequence: number, percent: number, stage: string) {
+      const pending = pendingInitialization;
+      if (
+        !pending ||
+        !initializing() ||
+        sequence !== pending.sequence ||
+        !Number.isInteger(percent) ||
+        percent < pending.percent ||
+        percent >= 100
+      )
+        return;
+      pending.percent = percent;
+      pending.stage = stage;
+      hooks.renderFeedback();
+    },
     get initializing(): boolean {
       return initializing();
     },

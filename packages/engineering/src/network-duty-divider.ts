@@ -1,3 +1,4 @@
+import { directionalReturnLine } from './network-duty-return-pipes.js';
 import type { NetworkComponent, NetworkProject } from '@hyd/domain';
 import type { DutyPhasePaths } from './network-duty-accessories.js';
 import {
@@ -13,7 +14,7 @@ import type { DutyPhase } from './network-duty.js';
 
 export const dutyDividerTypes: ReadonlySet<string> = new Set(['flow-divider-combiner', 'synchronizing-flow-divider']);
 export const dividerDutyConditions = [
-  '单定量泵、单油箱、单四通换向阀、单分流集流阀和两只普通双作用缸。分集流阀 P 接换向阀 A，分集流阀 A/B 各接一只缸无杆腔，两缸有杆腔共接换向阀 B。仅经理想油路连接，泵及直动溢流在未溢流区核算。',
+  '单定量泵、单油箱、单四通换向阀、单分流集流阀和两只普通双作用缸。分集流阀 P 接换向阀 A，分集流阀 A/B 各接一只缸无杆腔，两缸有杆腔共接换向阀 B。换向阀 T 口可经一段有损管回同箱，其余为理想油路，泵及直动溢流在未溢流区核算。',
   'P→A/B 分流比例施加在两缸进油量；A/B→P 集流比例施加在两缸排油量，按实际面积比反算进油量与缸速。主通道按保存比例及孔口面积求限流支路，另一侧补偿节流。按目标 ±1% 判断缸速。',
   '缸容积效率取 1。回油输入取油箱压力，其余供油压降置零，由保存的换向阀面积计算阀口损失。泵口限压输入仅作预算校核。',
   '同步阀末端纠偏仅核算伸出侧一缸到位、主分流为零且已知停缸无杆腔压力的稳态点。停缸口压力、纠偏阈值和小阀口决定另一缸流量；双缸低流量时的主路与纠偏混合、到位先后和瞬态另验。',
@@ -74,7 +75,7 @@ export function solveDutyDivider(
     targets.length !== 2 ||
     phase.actions.length !== 2 ||
     components.some((part) => !allowed.has(part.typeId)) ||
-    connections.some((edge) => edge.kind !== 'ideal')
+    connections.some((edge) => edge.kind === 'signal')
   )
     return pending('须为单定量泵、单油箱、单四通换向阀、单分集流阀及两只普通双作用缸的理想回路。');
   const ideal = (from: string, to: string) => paths.uniquePath(from, to)?.every((arc) => arc.ideal) === true;
@@ -82,7 +83,6 @@ export function solveDutyDivider(
   if (
     groups.some((from, index) => groups.slice(index + 1).some((to) => paths.idealReachable(from, to))) ||
     !ideal(pumpPort, port(valve, 'P')) ||
-    !ideal(tankPort, port(valve, 'T')) ||
     !ideal(tankPort, port(pump, 'S')) ||
     !ideal(common, port(valve, 'A'))
   )
@@ -142,7 +142,10 @@ export function solveDutyDivider(
         0,
       )
     : qCommon;
-  const returnBoundary = tankPressurePa + commonResistance * qReturn ** 2;
+  const line = directionalReturnLine(project, paths, port(valve, 'T'), tankPort, qReturn, tankPressurePa);
+  if (!line.ok) return pending(line.diagnostics.map((item) => item.message).join('；'));
+  const valveT = line.value?.upstreamPressurePa ?? tankPressurePa;
+  const returnBoundary = valveT + commonResistance * qReturn ** 2;
   const demandPressure = (b: DividerBranch) => (b.load + returnBoundary * b.rod) / b.cap;
   let commonPressure = returnBoundary;
   let workPressure = 0;
@@ -241,7 +244,7 @@ export function solveDutyDivider(
       inletAreaM2,
       flowM3PerS,
       speedMPerS,
-      returnBoundaryPa: tankPressurePa,
+      returnBoundaryPa: valveT,
       returnFlowM3PerS: forward ? (flowM3PerS * b.rod) / b.cap : valveFlow,
       returnPressurePa: forward ? returnBoundary : reading.pressurePa,
       closed: false,
@@ -257,6 +260,14 @@ export function solveDutyDivider(
     shaftPowerW: ((pumpPressure - tankPressurePa) * pumpFlow) / totalEfficiency,
     matchesTargets: !reasons.length && results.every((b) => b.status === 'matched' || b.status === 'end-stop'),
     branches: results,
+    ...(line.value
+      ? {
+          returnSegments: [
+            { ...line.value, role: '回油干线', parentId: null, depth: 0, cylinderLabels: targets.map((t) => t.label) },
+          ],
+          sharedReturn: { ...line.value, tankPressurePa },
+        }
+      : {}),
     reasons,
     divider: {
       label: label(divider),

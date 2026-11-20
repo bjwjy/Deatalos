@@ -1,6 +1,7 @@
 import {
   NetworkTools,
   NetworkToolCurves,
+  compareCylinders,
   networkToolBase,
   networkToolParameterChanges,
   parseNetworkToolRequest,
@@ -10,7 +11,14 @@ import {
   type NetworkToolSource,
   type NetworkExportCapture,
 } from '@hyd/application';
-import { checkJson, ContractReader, diagnostic, type DisplayDiagnostic, type Result } from '@hyd/domain';
+import {
+  checkJson,
+  ContractReader,
+  diagnostic,
+  isLinearActuatorType,
+  type DisplayDiagnostic,
+  type Result,
+} from '@hyd/domain';
 import { toolCurveArtifact } from './network-tool-curves.mjs';
 import { createToolFileDialogs } from './network-tool-files.mjs';
 import { createToolSettings } from './network-tool-settings.mjs';
@@ -629,10 +637,21 @@ export function createNetworkTools(hooks: Hooks) {
     )
       return fail('RESPONSE_STALE', '工程或仿真已变化，请重新捕获后再操作。');
 
+    if (
+      action.kind === 'run-until' &&
+      !editor.document.design.components.some(
+        (c) => c.id === action.condition.componentId && isLinearActuatorType(c.typeId),
+      )
+    )
+      return fail('CONDITION_INVALID', '停止条件需要当前工程中液压缸的元件 ID。');
     if (!('componentId' in action)) {
       const result =
-        action.kind === 'run-for'
-          ? await hooks.runtime.operateLimited(action.ticks, () => current() && sameDesign())
+        action.kind === 'run-for' || action.kind === 'run-until'
+          ? await hooks.runtime.operateLimited(
+              action.ticks,
+              () => current() && sameDesign(),
+              action.kind === 'run-until' ? action.condition : undefined,
+            )
           : await hooks.runtime.operateSimulation(action.kind, () => current() && sameDesign());
       if (!sameDesign()) return fail('RESPONSE_STALE', '执行期间工程已变化，请重新捕获。');
       if (!result.ok) return result;
@@ -645,6 +664,7 @@ export function createNetworkTools(hooks: Hooks) {
           running,
           identity,
           solver: point?.solver ?? null,
+          ...(action.kind === 'run-until' ? { conditionRun: result.value.conditionRun } : {}),
           ...(action.kind === 'run-for' && identity
             ? {
                 limit: {
@@ -796,6 +816,12 @@ export function createNetworkTools(hooks: Hooks) {
                         }
                       : fail('INTERACTION_BUSY', '对象已不存在或画布编辑尚未结束，未更改工程。');
               }
+            } else if (q.method === 'cylinder_compare') {
+              const revision = editor.revision;
+              const capture = await hooks.runtime.refreshRecords('current');
+              if (!active() || editor.revision !== revision) result = fail('RESPONSE_STALE', '读取期间工程已改变。');
+              else if (!capture) result = fail('RUNTIME_NOT_READY', '当前没有有效运行数据，请先仿真。');
+              else result = compareCylinders(capture, q.params.cylinderIds, q.params.fromTick);
             } else if (q.method === 'curve_history') {
               const rows = await hooks.history(editor.document.projectId);
               result = {
@@ -882,6 +908,8 @@ export function createNetworkTools(hooks: Hooks) {
                 if (filesByRequest.size > 16) filesByRequest.delete(filesByRequest.keys().next().value ?? '');
               }
             } else if (q.method === 'file_status') result = fileDialogs.status(q.params.operationId);
+            else if (q.method === 'export_batch_retry')
+              result = fileDialogs.retryBatch(q.params.operationId, q.params.retryKey);
             else if (q.method === 'file_cancel') result = fileDialogs.cancel(q.params.operationId);
             else if (q.method === 'simulate') result = await simulate(editor, q.params, maySimulate);
             else if (q.method === 'capture') {
@@ -919,7 +947,11 @@ export function createNetworkTools(hooks: Hooks) {
             if (!active() || (q.method === 'simulate' && simulationAllowed && !maySimulate())) {
               const settingsOperation = settingsByRequest.get(id);
               if (settingsOperation) settingsDialogs.cancel(settingsOperation);
-              if (q.method === 'simulate' && q.params.action.kind === 'run-for') await hooks.runtime.pauseLimited();
+              if (
+                q.method === 'simulate' &&
+                (q.params.action.kind === 'run-for' || q.params.action.kind === 'run-until')
+              )
+                await hooks.runtime.pauseLimited();
               const fileOperation = filesByRequest.get(id);
               if (fileOperation) fileDialogs.cancel(fileOperation);
               const proposal = proposalsByRequest.get(id);

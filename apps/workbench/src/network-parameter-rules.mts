@@ -1,5 +1,5 @@
 import { networkDefinition, networkParameterRule, parameterDisplayName, type NetworkComponent } from '@hyd/domain';
-import { escapeHtml as esc } from './network-dom.mjs';
+import { associateFieldLabel, escapeHtml as esc } from './network-dom.mjs';
 import { networkUiIcon } from './network-v13-icons.mjs';
 
 export type ParameterLockChange = (group: string, key: string, locked: boolean) => 'persisted' | 'staged' | false;
@@ -14,6 +14,8 @@ export function parameterRuleField(component: NetworkComponent, group: string, k
 }
 export function bindParameterRuleFields(root: HTMLElement, change?: ParameterLockChange): void {
   for (const button of root.querySelectorAll<HTMLButtonElement>('[data-rule-toggle]')) {
+    const label = button.closest('label');
+    if (label) associateFieldLabel(label);
     // Repeated pointer presses on a label must toggle the control, not start word/paragraph selection.
     // Keep keyboard activation on the native button's click path.
     button.addEventListener('pointerdown', (event) => {
@@ -38,7 +40,10 @@ export function bindParameterRuleFields(root: HTMLElement, change?: ParameterLoc
       button.dataset.ruleModified = String(outcome === 'staged');
       button.innerHTML = networkUiIcon(locked ? 'lock' : 'unlock');
       button.setAttribute('aria-pressed', String(locked));
-      button.setAttribute('aria-label', (locked ? '解锁' : '锁定') + parameterDisplayName(key));
+      button.setAttribute(
+        'aria-label',
+        (locked ? '解锁' : '锁定') + (button.dataset.fieldName ?? parameterDisplayName(key)),
+      );
       button.title = locked ? '已锁定，计算和AI不可改变；点击解锁' : '未锁定，点击锁定';
     });
   }

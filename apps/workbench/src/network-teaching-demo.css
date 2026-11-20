@@ -559,7 +559,7 @@
   opacity: 0.72;
   cursor: default;
 }
-#componentTeachingDialog[data-teaching-stroke='ready'] .teaching-control::after {
+#componentTeachingDialog[data-teaching-stroke='ready'] [data-teaching-toggle]::after {
   position: absolute;
   inset-inline-end: 12px;
   content: '←';
@@ -611,40 +611,50 @@
     min-height: 3em;
   }
 }
+#componentTeachingDialog .teaching-playback {
+  flex: none;
+  width: auto;
+  min-height: 32px;
+  margin: 0 0 0 auto;
+  padding: 4px 10px;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .teaching-diagram .flow-motion {
-    display: none;
-  }
-  .teaching-diagram .gauge-needle {
-    transition: none;
-  }
-  .teaching-piston,
-  .teaching-cushion-piston,
-  .teaching-swing-arm,
-  .teaching-correction-piston[data-correcting='true'],
-  .teaching-boost-piston[data-boost='true'],
-  .teaching-spring,
-  .teaching-rotor,
-  .teaching-liquid-dots,
-  .teaching-gas-bladder,
-  .teaching-pressure-rise,
-  .teaching-diagram .teaching-sense-active,
-  .teaching-pilot-pin[data-pilot='on'],
-  .teaching-lock-travel:is([data-travel='extend'], [data-travel='retract']),
-  .teaching-load-travel[data-lowering='true'] {
-    animation: none;
-  }
-  .teaching-shuttle-ball[data-source],
-  .teaching-and-gate[data-enabled='true'],
-  .teaching-switch-contact[data-transition],
-  .teaching-analog-point,
-  .teaching-displacement-marker[data-high='true'],
-  .teaching-control-rotor,
-  .teaching-controller-piston[data-phase],
-  .teaching-diagram .teaching-controller-command {
-    animation: none;
-  }
-  .teaching-controller-piston[data-phase='extend'] {
-    transform: translateX(44px);
+  #componentTeachingDialog:not([data-teaching-motion-enabled]) {
+    .teaching-diagram .flow-motion {
+      display: none;
+    }
+    .teaching-diagram .gauge-needle {
+      transition: none;
+    }
+    .teaching-piston,
+    .teaching-cushion-piston,
+    .teaching-swing-arm,
+    .teaching-correction-piston[data-correcting='true'],
+    .teaching-boost-piston[data-boost='true'],
+    .teaching-spring,
+    .teaching-rotor,
+    .teaching-liquid-dots,
+    .teaching-gas-bladder,
+    .teaching-pressure-rise,
+    .teaching-diagram .teaching-sense-active,
+    .teaching-pilot-pin[data-pilot='on'],
+    .teaching-lock-travel:is([data-travel='extend'], [data-travel='retract']),
+    .teaching-load-travel[data-lowering='true'] {
+      animation: none;
+    }
+    .teaching-shuttle-ball[data-source],
+    .teaching-and-gate[data-enabled='true'],
+    .teaching-switch-contact[data-transition],
+    .teaching-analog-point,
+    .teaching-displacement-marker[data-high='true'],
+    .teaching-control-rotor,
+    .teaching-controller-piston[data-phase],
+    .teaching-diagram .teaching-controller-command {
+      animation: none;
+    }
+    .teaching-controller-piston[data-phase='extend'] {
+      transform: translateX(44px);
+    }
   }
 }

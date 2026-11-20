@@ -95,6 +95,7 @@ export function prepareNetworkDutyCalculation(
       },
       assumptions:
         completePlan?.record.assumptions ??
+        (coverage.transientScope ? conditions : undefined) ??
         (input.value.duty?.boundary
           ? ['按保存的边界与指定状态核算，未覆盖项见工况状态。']
           : ['按稳态阻性负载和已提供的供回油条件核算；未覆盖项见工况状态。']),

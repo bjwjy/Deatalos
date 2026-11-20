@@ -57,6 +57,7 @@ export async function syncNetworkAiSupport(
         '819124cb5f49064c6a419896454675c10bf612ed1ad1024ec2d42597ce418c99',
         'a9eb22e55de64afcd0608452c57fc33c7807aabadb2e54b095529461b8cdc0f0',
         '360f0c087d32104bf5ed9009cd884a81e8eac7738b035e0bb14479b8340d3099',
+        'ab2e40d503edc18cf7e7660a14c3b0db9ba8765964bec9e11d9ade4a8427bac4',
         '20340c68b179694798c905a4f7cab1f77f0f16d5888bf59fa164ce57260bc266',
       ],
       kind: 'guide',
@@ -70,6 +71,7 @@ export async function syncNetworkAiSupport(
         '303747f085b9bd5c108fbf045fd753d8a1ab44c4fece2e8295ce7c35bee1ce56',
         'e37fb3e7637948499899162a543b09e2ef15492f786eb62d1743d61365964359',
         'bbf1639f71bcddf02175b5040c60d500f782745ac98b9dfa083d1bed414a094a',
+        'edb2541dad7c27ccadd3713d59a66557f2cbbb410b7373caf87cae12b202ae3a',
         'f35b7662c8bc508a859f89c85da7a33f554b8548bc099cc2597f6eb7fa31609a',
       ],
       kind: 'guide',
@@ -148,7 +150,7 @@ export async function syncNetworkAiSupport(
   await immutableFile(
     path.join(bundle, '资料说明.md'),
     Buffer.from(
-      '# 当前版本AI配套资料\n\n本目录由软件维护，请不要编辑。根AGENTS.md为支持客户端的规则入口，自定义版本原样保留；根AI.md及用户Markdown也保留补充。已有聊天定位目录时需核对是否加载规则。\n\nWindows普通改图使用本包HydraulicTool.exe --project <工程绝对目录> --context --summary；填好返回previewTemplate的commands后，执行 --preview-file <JSON绝对路径> --summary。一次读取/提交同时保存完整结果，并在stdout返回不超过8KiB的摘要。成功context已经获取capabilities；需要命令字段时用内置文件工具直接读recordDirectory/requestSchemaFile（request-schema.json），不要再执行--diagnose或重复capabilities。--diagnose仅用于实际连接故障排查。操作问答只读本版本软件操作手册。实时查报错沿同一次上下文摘要，用内置文件工具打开diagnosticGuideFile。按recordDirectory及file路径用内置文件工具读取设计/特定元件，不为解析、核对状态或清理再启动shell/Python，不因截断重复读取。任务书及选型先读本包工程任务分析.md，分清需求、机构、元件、参数来源和交付检查；同次design.md/catalog.md/commands.md及选定元件Markdown直接可读，JSON已多行化。默认参数不是题目计算结果，失败校验只报告不完整草稿。完整参数及响应见本包AI自动接入.md。原始模式、--session及--diagnose仍兼容；不保证外部审批次数。先核对已有回路及待处理候选，不为交付重复添加支路；只有用户明确确认才应用。实时capture含未保存编辑，磁盘只代表已保存快照；明确导出时才生成PDF，失败不替代交付。\n\n本次AI接入记录保存在工程导出_Exports/诊断_Diagnostics/AI接入_AiCalls，不改设计、不自动上传或清理；不是帮助菜单导出诊断批次。已知旧默认升级前备份到同级../backups/<原内容SHA256>/；未知客户端或版本包修改仍明确拒绝保存，入口/快照摘要保护保持。不修改全局策略或外部客户端审批，实际应用仍须用户确认。\n',
+      '# 当前版本AI配套资料\n\n本目录由软件维护，请不要编辑。根AGENTS.md为支持客户端的规则入口，自定义版本原样保留；根AI.md及用户Markdown也保留补充。已有聊天定位目录时需核对是否加载规则。\n\n查询两缸位置、速度与差值使用本包 HydraulicTool.exe --project <工程绝对目录> --compare-cylinders。Windows普通改图使用本包HydraulicTool.exe --project <工程绝对目录> --context --summary；填好返回previewTemplate的commands后，执行 --preview-file <JSON绝对路径> --summary。一次读取/提交同时保存完整结果，并在stdout返回不超过8KiB的摘要。成功context已经获取capabilities；需要命令字段时用内置文件工具直接读recordDirectory/requestSchemaFile（request-schema.json），不要再执行--diagnose或重复capabilities。--diagnose仅用于实际连接故障排查。操作问答只读本版本软件操作手册。实时查报错沿同一次上下文摘要，用内置文件工具打开diagnosticGuideFile。按recordDirectory及file路径用内置文件工具读取设计/特定元件，不为解析、核对状态或清理再启动shell/Python，不因截断重复读取。任务书及选型先读本包工程任务分析.md，分清需求、机构、元件、参数来源和交付检查；同次design.md/catalog.md/commands.md及选定元件Markdown直接可读，JSON已多行化。默认参数不是题目计算结果，失败校验只报告不完整草稿。完整参数及响应见本包AI自动接入.md。原始模式、--session及--diagnose仍兼容；不保证外部审批次数。先核对已有回路及待处理候选，不为交付重复添加支路；只有用户明确确认才应用。实时capture含未保存编辑，磁盘只代表已保存快照；明确导出时才生成PDF，失败不替代交付。\n\n本次AI接入记录保存在工程导出_Exports/诊断_Diagnostics/AI接入_AiCalls，不改设计、不自动上传或清理；不是帮助菜单导出诊断批次。已知旧默认升级前备份到同级../backups/<原内容SHA256>/；未知客户端或版本包修改仍明确拒绝保存，入口/快照摘要保护保持。不修改全局策略或外部客户端审批，实际应用仍须用户确认。\n',
     ),
   );
   const replaced: { file: string; original: Buffer | null; written: string }[] = [];

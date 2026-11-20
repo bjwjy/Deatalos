@@ -42,6 +42,17 @@ function sameDocument(a: NetworkToolBase, b: NetworkToolBase): boolean {
 /** Bounded request/outcome ownership. Only the workbench may confirm; no filesystem or UI effects. */
 export class NetworkToolFiles {
   #operations = new Map<string, NetworkToolFileOperation>();
+  replay(
+    base: NetworkToolBase,
+    operationKey: string,
+    action: NetworkToolFileAction,
+  ): Result<NetworkToolFileOperation> | null {
+    const prior = [...this.#operations.values()].find((item) => item.operationKey === operationKey);
+    if (!prior) return null;
+    return canonical({ base: prior.base, action: prior.action }) === canonical({ base, action })
+      ? { ok: true, value: prior }
+      : toolFailure('OPERATION_KEY_CONFLICT', '同一操作编号不能用于不同请求。');
+  }
   prepare(
     base: NetworkToolBase,
     current: NetworkToolBase,
@@ -49,11 +60,8 @@ export class NetworkToolFiles {
     action: NetworkToolFileAction,
     operationId: string,
   ): Result<NetworkToolFileOperation> {
-    const prior = [...this.#operations.values()].find((item) => item.operationKey === operationKey);
-    if (prior)
-      return canonical({ base: prior.base, action: prior.action }) === canonical({ base, action })
-        ? { ok: true, value: prior }
-        : toolFailure('OPERATION_KEY_CONFLICT', '同一操作编号不能用于不同请求。');
+    const prior = this.replay(base, operationKey, action);
+    if (prior) return prior;
     if (!sameDocument(base, current)) return toolFailure('RESPONSE_STALE', '工程已改变，请重新捕获。');
     if (
       [...this.#operations.values()].some(
@@ -126,6 +134,35 @@ export class NetworkToolFiles {
       id,
       immutable({ ...item, state: 'completed', outcome: { status: 'ok', operation: 'curve-import', source } }),
     );
+  }
+  #retryKeys = new Map<string, string>();
+  retryBatch(
+    id: string,
+    key: string,
+    current: NetworkToolBase,
+    ready: () => Result<true>,
+  ): Result<{ started: boolean; operation: NetworkToolFileOperation }> {
+    const found = this.status(id);
+    if (!found.ok) return found;
+    const row = found.value;
+    if (row.action.kind !== 'export-batch') return toolFailure('FILE_OPERATION_INVALID', '仅可补写三文件归档。');
+    const prior = this.#retryKeys.get(key);
+    if (prior && prior !== id) return toolFailure('OPERATION_KEY_CONFLICT', '补写编号已用于另一批导出。');
+    if (prior || row.state === 'completed') return { ok: true, value: { started: false, operation: row } };
+    if (!sameDocument(row.base, current)) return toolFailure('RESPONSE_STALE', '工程已改变，请重新计算并导出。');
+    if (row.state !== 'partial' && row.state !== 'failed')
+      return toolFailure('FILE_BUSY', '请先查询原操作的最终回执。');
+    if (
+      [...this.#operations.values()].some((item) =>
+        ['awaiting-confirmation', 'writing', 'reading'].includes(item.state),
+      )
+    )
+      return toolFailure('FILE_BUSY', '请先完成当前文件操作。');
+    if (this.#retryKeys.size >= 64) return toolFailure('FILE_OPERATION_LIMIT', '本连接的补写记录已满。');
+    const available = ready();
+    if (!available.ok) return available;
+    this.#retryKeys.set(key, id);
+    return { ok: true, value: { started: true, operation: this.#replace(row, 'writing') } };
   }
   completeBatch(id: string, items: readonly NetworkToolExportItem[]): void {
     const item = this.#operations.get(id);

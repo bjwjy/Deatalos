@@ -12,8 +12,9 @@ import { arrangementOrientations } from './network-layout-orientation.js';
 import { planNetworkComponentPositions, planNetworkJunctionPositions } from './network-layout-placement.js';
 import { portTerminal, routeHydraulicTrees, type HydraulicTreeDrawing } from './network-tree-routing.js';
 import { scoreHydraulicTree, type NetworkRoutingScore } from './network-tree-score.js';
-import { pointKey, segments, type Point, type Track, type TreeGeometry } from './network-tree-geometry.js';
+import { type Point, type TreeGeometry } from './network-tree-geometry.js';
 import { networkLayoutBuses } from './network-layout-buses.js';
+import { inspectDrawingPaths } from './network-route-repair.js';
 import { networkDrawingRoutes } from './network-routing.js';
 export interface OptimizedNetworkDrawing {
   readonly drawing: HydraulicTreeDrawing;
@@ -73,32 +74,17 @@ function scoreAvoidDrawing(
   label: string,
   trials: number,
 ): OptimizedNetworkDrawing | null {
-  const paths = new Map<string, readonly Point[]>(),
-    tracks: Track[] = [];
-  const groups = networkBranchConnectionGroups(project);
-  const terminals = new Map<string, Map<string, Set<string>>>();
-  const routes = networkDrawingRoutes(project);
-  for (const edge of project.design.connections) {
-    const route = routes.get(edge.id);
-    if (!route?.ok) return null;
-    const netId = edge.kind === 'ideal' ? 'ideal:' + (groups.get(edge.id) ?? edge.id) : edge.kind + ':' + edge.id;
-    paths.set(edge.id, route.value);
-    for (const span of segments(route.value)) tracks.push({ ...span, netId });
-    for (const end of [edge.from, edge.to]) {
-      const p = geometry.position(project, end);
-      if (!p) return null;
-      const key = pointKey(p),
-        terminal = branchEndpointKey(end);
-      const contacts = terminals.get(key) ?? new Map<string, Set<string>>();
-      const nets = contacts.get(terminal) ?? new Set<string>();
-      nets.add(netId);
-      contacts.set(terminal, nets);
-      terminals.set(key, contacts);
-    }
+  const paths = new Map<string, readonly Point[]>();
+  for (const [id, route] of networkDrawingRoutes(project)) {
+    if (!route.ok) return null;
+    paths.set(id, route.value);
   }
-  const drawing = { project, paths, tracks, searches: 0, expanded: 0 };
-  const metrics = scoreHydraulicTree(drawing, geometry, (p, a, b) =>
-    [...(terminals.get(pointKey(p))?.values() ?? [])].some((nets) => nets.has(a) && nets.has(b)),
+  const { drawing, metrics } = inspectDrawingPaths(
+    project,
+    geometry,
+    paths,
+    networkBranchConnectionGroups(project),
+    false,
   );
   return { drawing, metrics, method: label + ':avoid', trials };
 }
@@ -139,7 +125,17 @@ function optimizeCandidates(
   const allIdeal = project.design.connections.every((e) => e.kind === 'ideal');
   if (kind === 'arrangement' && allIdeal) {
     const grouped = structuredBranchLayouts(project, geometry);
-    if (grouped.ok) layouts.push(...grouped.value);
+    if (grouped.ok) {
+      // Left/right pressure accessory options can produce exactly the same placements.
+      // Route each distinct set once, retaining the first candidate for stable ties.
+      const seen = new Set<string>();
+      for (const candidate of grouped.value) {
+        const key = JSON.stringify(candidate.project.layout.components);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        layouts.push(candidate);
+      }
+    }
   }
   // Keep the current structured-placement baseline as a candidate for unsupported group shapes.
   layouts.push({ project, label: 'baseline' });

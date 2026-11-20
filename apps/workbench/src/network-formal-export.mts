@@ -3,7 +3,9 @@ import {
   changeFields,
   parseDrawingSettings,
   calculationBook,
+  capturedCalculationRecord,
   parseNetworkArtifact,
+  type DrawingTemplate,
   type NetworkArtifact,
   type NetworkFileOutcome,
   type NetworkDraftSession,
@@ -13,11 +15,12 @@ import {
   parseCalculationBook,
   type NetworkCatalogPreview,
 } from '@hyd/application';
-import { networkLearningRecord, type CalculationRecord } from '@hyd/engineering';
+import { type CalculationRecord } from '@hyd/engineering';
 import { diagnostic, type Result } from '@hyd/domain';
 import { element, escapeHtml as esc } from './network-dom.mjs';
 import { drawingSheet } from './network-drawing-sheet.mjs';
 import { createDrawingTemplates } from './network-drawing-template.mjs';
+import { bindFrameDesigner } from './network-frame-designer.mjs';
 import { bindTitleEditor } from './network-formal-drawing-view.mjs';
 import type { NetworkExportDefaults } from './network-app-settings.mjs';
 type DrawingFormat = NetworkExportDefaults['drawing'];
@@ -77,6 +80,76 @@ export function createNetworkFormalExport(hooks: Hooks) {
   const templates = createDrawingTemplates(root, () => invalidate());
   const titleCells = new Map<string, string>();
   bindTitleEditor(root, templates.current, titleCells, () => invalidate());
+  const renamedHeadings = (draft: DrawingTemplate) => {
+    const previous = new Map(templates.current()?.fields.map((f) => [f.key, f.label]));
+    const priorCells = new Map(templates.current()?.table?.map((c) => [c.id, c]));
+    const changedText =
+      draft.table
+        ?.filter(
+          (c) =>
+            priorCells.has(c.id) && (priorCells.get(c.id)?.field !== c.field || priorCells.get(c.id)?.text !== c.text),
+        )
+        .map((c) => 'tableText.' + c.id) ?? [];
+    return draft.fields
+      .filter((f) => previous.has(f.key) && previous.get(f.key) !== f.label)
+      .map((f) => 'templateHeading.' + f.key)
+      .concat(changedText);
+  };
+  bindFrameDesigner({
+    current: templates.current,
+    content(draft) {
+      const input = settings(draft);
+      const cells = { ...input.titleCells };
+      for (const key of renamedHeadings(draft)) delete cells[key];
+      return { fields: input.fields, cells };
+    },
+    sheet(draft, edits) {
+      const input = settings(draft);
+      for (const key of renamedHeadings(draft)) if (input.titleCells) delete input.titleCells[key];
+      Object.assign(input.fields, edits.fields);
+      const pendingCells = Object.fromEntries(
+        Object.entries(edits.cells).filter(([key]) =>
+          key.startsWith('tableText.')
+            ? draft.table?.some((c) => 'tableText.' + c.id === key && !c.field)
+            : !draft.table,
+        ),
+      );
+      const parsed = parseDrawingSettings({ ...input, titleCells: { ...input.titleCells, ...pendingCells } });
+      if (!parsed.ok || !owner)
+        return {
+          error: parsed.ok ? '请重新打开原理图导出窗口。' : parsed.diagnostics.map((d) => d.message).join('；'),
+        };
+      const result = drawingArtifact(
+        owner,
+        parsed.value,
+        {
+          snapshotId: 'frame-preview',
+          documentSessionId: owner.documentSessionId,
+          revision: owner.revision,
+          physicsRevision: owner.physicsRevision,
+          capturedAt: new Date().toISOString(),
+        },
+        'svg',
+      );
+      return result.ok ? { svg: result.value.text } : { error: result.diagnostics.map((d) => d.message).join('；') };
+    },
+    commit(draft, save, edits) {
+      const renamed = renamedHeadings(draft);
+      const problem = templates.commit(draft, save);
+      if (!problem) {
+        for (const key of renamed) titleCells.delete(key);
+        for (const [key, value] of Object.entries(edits.cells)) titleCells.set(key, value);
+        for (const input of root.querySelectorAll<HTMLInputElement>('[data-formal-field]')) {
+          const value = edits.fields[input.dataset.formalField ?? ''];
+          if (value !== undefined && value !== input.value) {
+            input.value = value;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        }
+      }
+      return problem;
+    },
+  });
   root.addEventListener('input', (event) => {
     if (!(event.target instanceof HTMLInputElement)) return;
     const key = event.target.dataset.formalField;
@@ -108,17 +181,20 @@ export function createNetworkFormalExport(hooks: Hooks) {
     element('formal-preview').textContent = '';
     dialog.close();
   }
-  function settings(): unknown {
+  function settings(template = templates.current()) {
     const fields: Record<string, string> = {},
       changes: Record<string, string>[] = [{}, {}, {}];
-    const template = templates.current();
     const templateHeadings = new Set(template?.fields.map(({ key }) => 'templateHeading.' + key));
-    const activeCells = [...titleCells].filter(
-      ([key]) =>
-        !key.startsWith('template') || templateHeadings.has(key) || (template && key.startsWith('templateSpare.')),
+    const fixedCells = new Set(template?.table?.filter((c) => !c.field).map((c) => 'tableText.' + c.id));
+    const activeCells = [...titleCells].filter(([key]) =>
+      key.startsWith('tableText.')
+        ? fixedCells.has(key)
+        : !key.startsWith('template') || templateHeadings.has(key) || (template && key.startsWith('templateSpare.')),
     );
     for (const e of root.querySelectorAll<HTMLInputElement>('[data-formal-field]'))
       if (e.dataset.formalField) fields[e.dataset.formalField] = e.value;
+    // Newly added draft fields do not have value inputs until the layout is applied.
+    for (const field of template?.fields ?? []) fields[field.key] ??= '';
     for (const e of root.querySelectorAll<HTMLInputElement>('[data-formal-change]')) {
       const row = changes[Number(e.dataset.formalChange)];
       if (row && e.dataset.formalKey) row[e.dataset.formalKey] = e.value;
@@ -181,18 +257,21 @@ export function createNetworkFormalExport(hooks: Hooks) {
       text: JSON.stringify(format === 'pdf' ? { format: 'HydraulicCalculationBookPdf', version: 1, book } : book),
     });
   }
-  function prepareToolBatch(calculation: CalculationRecord) {
-    if (dialog.open || busy)
-      return { ok: false as const, diagnostics: [diagnostic('FILE_BUSY', '/files', '请先完成或关闭当前正式导出。')] };
-    const editor = hooks.editor();
+  function toolDrawingSettings() {
     const defaults = hooks.exportDefaults();
-    const parsed = parseDrawingSettings({
+    return parseDrawingSettings({
       paper: defaults.paper,
       orientation: defaults.orientation,
       occupancy: 1,
       fields: Object.fromEntries(drawingFields.map(([key]) => [key, ''])),
       changes: Array.from({ length: 3 }, () => Object.fromEntries(changeFields.map(([key]) => [key, '']))),
     });
+  }
+  function prepareToolDrawing(format: DrawingFormat) {
+    if (dialog.open || busy)
+      return { ok: false as const, diagnostics: [diagnostic('FILE_BUSY', '/files', '请先完成或关闭当前正式导出。')] };
+    const editor = hooks.editor();
+    const parsed = toolDrawingSettings();
     if (!parsed.ok) return parsed;
     const capturedAt = new Date().toISOString();
     const drawing = drawingArtifact(
@@ -205,9 +284,18 @@ export function createNetworkFormalExport(hooks: Hooks) {
         physicsRevision: editor.physicsRevision,
         capturedAt,
       },
-      'pdf',
+      format,
     );
     if (!drawing.ok) return drawing;
+    return {
+      ok: true as const,
+      value: { drawing: drawing.value, paper: parsed.value.paper, orientation: parsed.value.orientation },
+    };
+  }
+  function prepareToolBook(calculation: CalculationRecord, format: 'docx' | 'pdf') {
+    const parsed = toolDrawingSettings();
+    if (!parsed.ok) return parsed;
+    const capturedAt = new Date().toISOString();
     const snapshotId = hooks.uid('formal');
     const book = calculationBook(calculation, {
       snapshotId,
@@ -215,17 +303,14 @@ export function createNetworkFormalExport(hooks: Hooks) {
       fields: parsed.value.fields,
     });
     if (!book.ok) return book;
-    const word = bookArtifact(book.value, snapshotId, 'docx');
-    if (!word.ok) return word;
-    return {
-      ok: true as const,
-      value: {
-        drawing: drawing.value,
-        book: word.value,
-        paper: parsed.value.paper,
-        orientation: parsed.value.orientation,
-      },
-    };
+    return bookArtifact(book.value, snapshotId, format);
+  }
+  function prepareToolBatch(calculation: CalculationRecord) {
+    const sheet = prepareToolDrawing('pdf');
+    if (!sheet.ok) return sheet;
+    const book = prepareToolBook(calculation, 'docx');
+    if (!book.ok) return book;
+    return { ok: true as const, value: { ...sheet.value, book: book.value } };
   }
   function prepare(showPreview = true) {
     if (busy || !current() || !owner) return;
@@ -393,7 +478,7 @@ export function createNetworkFormalExport(hooks: Hooks) {
     element('formal-source').textContent = catalogPreview
       ? `工程：${editor.document.title}；${catalogPreview.goalSelection ? '未应用候选' : '当前设计'}；修订 ${editor.revision}。`
       : calculation
-        ? `计算来源：${calculation.title}；${calculation.dutyCoverage ? '稳态工况核算' : calculation.kind === 'preliminary' ? '初选预览' : '有效快照'}。`
+        ? `计算来源：${calculation.title}；${calculation.dutyCoverage ? (calculation.dutyCoverage.transientScope === 'only' ? '瞬态工况核算' : calculation.dutyCoverage.transientScope === 'mixed' ? '工况核算' : '稳态工况核算') : calculation.kind === 'preliminary' ? '初选预览' : '有效快照'}。`
         : `工程：${editor.document.title}；修订 ${editor.revision}。原理图按设计初始阀位绘制。`;
     dialog.showModal();
     prepare();
@@ -409,7 +494,7 @@ export function createNetworkFormalExport(hooks: Hooks) {
       element('exportStatus').textContent = '请先运行并取得有效结果，或在计算窗口预览后导出计算书。';
       return;
     }
-    const result = networkLearningRecord(capture.view.document, capture.view.point, capture.view.point.identity);
+    const result = capturedCalculationRecord(capture);
     if (!result.ok) {
       element('exportStatus').textContent = result.diagnostics.map((d) => d.message).join('；');
       return;
@@ -505,6 +590,10 @@ export function createNetworkFormalExport(hooks: Hooks) {
   });
   return {
     prepareToolBatch,
+    prepareToolDrawing,
+    prepareToolBook,
+    prepareToolCatalog: (preview: NetworkCatalogPreview, format: 'docx' | 'md') =>
+      exportNetworkCatalog(hooks.editor(), preview, format),
     openToolCatalog(
       preview: NetworkCatalogPreview,
       format: 'docx' | 'md',

@@ -16,7 +16,7 @@ import type { CalculationStep } from './network-learning.js';
 import { pipeParameters } from './network-duty-return-pipes.js';
 import {
   sharedPumpReturnConditions,
-  sharedPumpReturnPipe,
+  sharedPumpReturnRoute,
   solveSharedPumpReturn,
   type SharedPumpReturnPhase,
 } from './network-duty-shared-pump-return.js';
@@ -50,20 +50,28 @@ const componentLabel = (c: NetworkComponent) => c.label || c.id;
 
 /** Treat only an ideal net made of tank ports and junction nodes as a fixed pressure boundary. */
 export function independentDutyGroups(project: NetworkProject): readonly DutySupplyGroup[] {
-  const pipe = sharedPumpReturnPipe(project);
-  if (pipe) {
-    const { id, from, to } = pipe;
+  const route = sharedPumpReturnRoute(project);
+  if (route) {
+    // Collapse fixed tank boundaries only in the ownership projection. The hydraulic calculation
+    // uses the original route, tank pressures and physical pipes for each pump.
+    const tankIds = new Set(project.design.components.filter((p) => p.typeId === 'tank').map((p) => p.id));
+    const endpoint = (end: NetworkEndpoint): NetworkEndpoint =>
+      end.kind === 'port' && tankIds.has(end.componentId) ? { ...end, componentId: route.tank.id } : end;
     const groups = partitionSupplyGroups({
       ...project,
       design: {
         ...project.design,
-        connections: project.design.connections.map((edge) =>
-          edge.id === id ? { id, from, to, kind: 'ideal' } : edge,
-        ),
+        components: project.design.components.filter((p) => p.typeId !== 'tank' || p.id === route.tank.id),
+        connections: project.design.connections.map((edge) => {
+          const from = endpoint(edge.from),
+            to = endpoint(edge.to);
+          return edge.kind === 'pipe' ? { id: edge.id, kind: 'ideal', from, to } : { ...edge, from, to };
+        }),
       },
     });
-    if (groups.every((group) => group.result.kind === 'ready' && group.cylinders.length === 1))
-      return groups.map((group) => ({ ...group, sharedReturnPipeId: id }));
+    const first = route.pipes[0];
+    if (first && groups.length === 2 && groups.every((g) => g.result.kind === 'ready' && g.cylinders.length === 1))
+      return groups.map((group) => ({ ...group, sharedReturnPipeId: first.id }));
   }
   return partitionSupplyGroups(project);
 }
@@ -174,7 +182,8 @@ export function sharedPumpReturnPipeEligible(project: NetworkProject, connection
   const pipe = project.design.connections.find((edge) => edge.id === connectionId);
   return (
     pipe?.kind === 'pipe' &&
-    independentDutyGroups(project).some((group) => group.sharedReturnPipeId === connectionId) &&
+    independentDutyGroups(project).some((group) => !!group.sharedReturnPipeId) &&
+    !!sharedPumpReturnRoute(project)?.pipes.some((p) => p.id === connectionId) &&
     pipeParameters(project, pipe, '共用回油干线').ok
   );
 }
@@ -207,10 +216,8 @@ export function reviewIndependentDuty(project: NetworkProject, input: unknown) {
   if (!validated.ok) return validated;
   const coverage: DutyGroupCoverage[] = [];
   const steps: CalculationStep[] = [];
-  const pipe = project.design.connections.find(
-    (edge) => edge.kind === 'pipe' && edge.id === groups[0]?.sharedReturnPipeId,
-  );
-  if (pipe?.kind === 'pipe') {
+  const route = groups[0]?.sharedReturnPipeId ? sharedPumpReturnRoute(project) : undefined;
+  if (route) {
     const names = new Set<string>();
     const inputs = groups.flatMap((group) => {
       if (group.result.kind !== 'ready' || !group.tank) return [];
@@ -231,7 +238,7 @@ export function reviewIndependentDuty(project: NetworkProject, input: unknown) {
         },
       ];
     });
-    const shared = solveSharedPumpReturn(project, pipe, inputs, names.size ? [...names] : ['共用回油']);
+    const shared = solveSharedPumpReturn(project, route, inputs, names.size ? [...names] : ['共用回油']);
     for (const [index, input] of inputs.entries()) {
       const phases = shared[index] ?? [];
       const group = groups[index];

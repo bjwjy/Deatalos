@@ -7,7 +7,7 @@ import {
   networkDefinition,
   componentDisplayName,
   parameterDisplayName,
-  fromSI,
+  engineeringValueText,
   networkValvePositions,
   directionalValveSettings,
   directionalValveAutoName,
@@ -96,14 +96,7 @@ const catalogNumber = (value: number) => Number(value.toPrecision(7)).toString()
 function selectionValue(key: string, value: number, unit: string): string {
   if (key === 'internalTank') return value === 1 ? '内置油箱' : '外接 T 口';
   if (key === 'enabled' && unit === '1') return value === 1 ? '开启' : '关闭';
-  if (unit === 'Pa') return catalogNumber(fromSI('pressure', value)) + ' MPa';
-  if (unit === 'rad/s') return catalogNumber(fromSI('angularSpeed', value)) + ' r/min';
-  if (unit === 'm³/rev') return catalogNumber(fromSI('displacement', value)) + ' cm³/rev';
-  if (unit === 'm³') return catalogNumber(value * 1000) + ' L';
-  if (unit === 'm³/s') return catalogNumber(fromSI('flow', value)) + ' L/min';
-  if (unit === 'm²') return catalogNumber(value * 1e6) + ' mm²';
-  if (unit === 'm') return catalogNumber(fromSI('length', value)) + ' mm';
-  return catalogNumber(value) + (unit === '1' ? '' : ' ' + unit);
+  return engineeringValueText(value, unit, key);
 }
 const catalogChecks: Readonly<Record<string, string>> = {
   pump: '核对排量、额定压力、允许转速、轴伸和安装接口。',

@@ -119,8 +119,9 @@ const feedback = createNetworkFeedback({
   runtime: () => simulation.runtime,
   error: () => simulation.error,
   invalidated: () => simulation.invalidated,
-  initializing: () => simulation.initializing,
+  initializationProgress: () => simulation.initializationProgress,
 });
+window.hydraulicKernel?.onInitializationProgress?.(simulation.reportInitialization);
 const instanceControls = createNetworkInstanceControls({
   editor: () => editor,
   simulation,
@@ -271,6 +272,8 @@ const recovery = createNetworkRecovery({
 const curvePreview = createNetworkCurvePreview({
   capture: () => simulation.capture,
   refresh: captureForExport,
+  // A live capture pins and validates its own accepted point.
+  refreshLive: () => simulation.enqueue(() => simulation.refreshRecords(), 'capture'),
   running: () => !simulation.invalidated && simulation.runtime?.running === true,
 });
 const throttleControl = createNetworkThrottleControl({

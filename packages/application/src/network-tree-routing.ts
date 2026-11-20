@@ -109,6 +109,7 @@ export function routeHydraulicTrees(
   if (!graph.ok) return graph;
   const boxes = geometry.obstacles(project),
     types = new Map(project.design.components.map((c) => [c.id, c.typeId]));
+  const terminalGeometry = { ...geometry, obstacles: () => boxes };
   const nets = graph.value.nets.map((net) => ({
     ...net,
     ends: net.terminals
@@ -127,7 +128,7 @@ export function routeHydraulicTrees(
     const terminals: Terminal[] = [];
     for (const end of net.ends) {
       const lead = bus && types.get(end.componentId) === 'valve' ? options.busPortLead : undefined;
-      const terminal = portTerminal(project, end, geometry, lead);
+      const terminal = portTerminal(project, end, terminalGeometry, lead);
       if (!terminal) return fail('油口缺少注册几何。');
       terminals.push(terminal);
     }

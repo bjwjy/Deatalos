@@ -1,3 +1,8 @@
+import {
+  bindEngineeringInputs,
+  engineeringInputValue,
+  setEngineeringInputValue,
+} from './network-engineering-inputs.mjs';
 import { fromSI, type DisplayDiagnostic, type NetworkProject } from '@hyd/domain';
 import { escapeHtml as esc } from './network-dom.mjs';
 
@@ -6,7 +11,7 @@ export interface FormIssue {
   readonly message: string;
 }
 export function calculationNumber(key: string, label: string, unit: string, minimum = 0, maximum?: number): string {
-  return `<label class="calculation-field"><span>${esc(label)} <small>${esc(unit)}</small></span><small data-field-error hidden></small><input data-duty-field="${key}" data-field-label="${esc(label)}" type="number" step="any" min="${minimum}"${maximum === undefined ? '' : ` max="${maximum}"`} aria-label="${esc(label)}"><small data-field-source hidden>本次要求，请明确填写</small></label>`;
+  return `<label class="calculation-field"><span><span data-engineering-label>${esc(label)}</span> <small>${esc(unit)}</small></span><small data-field-error hidden></small><input ${calculationUnitAttributes(unit)} data-duty-field="${key}" data-field-label="${esc(label)}" type="number" step="any" min="${minimum}"${maximum === undefined ? '' : ` max="${maximum}"`} aria-label="${esc(label)}"><small data-field-source hidden>本次要求，请明确填写</small></label>`;
 }
 export function seedCalculationInput(
   input: HTMLInputElement,
@@ -15,7 +20,9 @@ export function seedCalculationInput(
   origin: 'project' | 'automatic-project' | 'automatic-assumption' = 'project',
 ): void {
   if (input.dataset.edited === 'true') return;
-  input.value = value === undefined ? '' : String(value);
+  if (input.dataset.displayUnit)
+    setEngineeringInputValue(input, value === undefined ? NaN : value * Number(input.dataset.paramScale ?? 1));
+  else input.value = value === undefined ? '' : String(value);
   if (input.hasAttribute('aria-invalid')) validateCalculationInput(input);
   input.dataset.source = source;
   if (origin === 'project') delete input.dataset.automatic;
@@ -56,7 +63,7 @@ export function readCalculationNumber(
     });
     return null;
   }
-  return input.valueAsNumber;
+  return calculationInputNumber(input);
 }
 function calculationInputError(input: HTMLInputElement): string {
   if (input.validity.badInput) return '请输入有效数字';
@@ -137,4 +144,38 @@ export function sourcePressureSeed(project: NetworkProject): {
       ? `${source.label} 的压力设定（预算可覆盖，非实际供油保证）`
       : '没有唯一同基准压力源；预算不能由溢流开启压差直接代替',
   };
+}
+
+// Calculation forms accept engineering values in their original form contract.
+// Remember that input scale separately from the currently selected button.
+const calculationUnits: Readonly<Record<string, readonly [string, number]>> = {
+  MPa: ['Pa', 1e6],
+  kN: ['N', 1000],
+  mm: ['m', 0.001],
+  'mm/s': ['m/s', 0.001],
+  'r/min': ['rad/s', Math.PI / 30],
+  'mm²': ['m²', 1e-6],
+  L: ['m³', 0.001],
+  'L/min': ['m³/s', 1 / 60000],
+  '°': ['rad', Math.PI / 180],
+};
+export function calculationUnitAttributes(label: string): string {
+  const unit = calculationUnits[label];
+  return unit ? 'data-engineering-unit="' + unit[0] + '" data-param-scale="' + unit[1] + '"' : '';
+}
+export function calculationInputNumber(input: HTMLInputElement): number {
+  return input.dataset.displayUnit
+    ? engineeringInputValue(input) / Number(input.dataset.paramScale ?? 1)
+    : input.valueAsNumber;
+}
+export function watchCalculationUnits(root: HTMLElement): void {
+  bindEngineeringInputs(root);
+  // Duty phases, actions and supply groups create fresh form fields as the circuit changes.
+  new MutationObserver((records) => {
+    for (const record of records)
+      for (const added of record.addedNodes) {
+        if (added instanceof HTMLElement && added.querySelector('input[data-engineering-unit]'))
+          bindEngineeringInputs(added);
+      }
+  }).observe(root, { childList: true, subtree: true });
 }

@@ -7,16 +7,16 @@
   <strong>From hydraulic schematics to circuit analysis and engineering reports.</strong>
 </p>
 <p align="center">
-  <a href="https://github.com/bjwjy/Deatalos/releases/download/v1.4.0-rc.1/Deatalos-1.4.0-rc.1-x64-Setup.exe"><strong>下载 V1.4 Windows x64 安装包 · Download Windows Installer</strong></a>
-  · <a href="https://github.com/bjwjy/Deatalos/releases/tag/v1.4.0-rc.1">发布说明 · Release notes</a>
+  <a href="https://github.com/bjwjy/Deatalos/releases/download/v1.4.0/Deatalos-1.4.0-x64-Setup.exe"><strong>下载 V1.4 Windows x64 安装包 · Download Windows Installer</strong></a>
+  · <a href="https://github.com/bjwjy/Deatalos/releases/tag/v1.4.0">发布说明 · Release notes</a>
   · <a href="#quickstart">跑一个示例 · Try an example</a>
   · <a href="#从源码运行">从源码运行</a>
   · <a href="#english">English</a>
 </p>
 
-**当前版本 V1.4（1.4.0-rc.1）**提供 Windows x64 离线安装包，约 114 MB，内含运行环境。下载并运行 `Setup.exe` 即可安装。
+**当前正式版 1.4.0**提供 Windows x64 离线安装包，约 112 MiB，内含运行环境。下载并运行 `Setup.exe` 即可安装。
 
-**V1.4 (1.4.0-rc.1)** is available as an offline Windows x64 installer (about 114 MB). Download and run `Setup.exe` to install.
+**Deatalos 1.4.0** is available as an offline Windows x64 installer (about 112 MiB). Download and run `Setup.exe` to install.
 
 Deatalos 把原理图绘制、油路诊断、瞬态仿真、工况计算和工程出图放在同一个 Windows 工作台。它面向液压教学、回路设计和工程初算，适合从泵、阀、缸和马达搭起回路，再用曲线和计算结果检查设计。
 
@@ -76,7 +76,7 @@ npm run check:architecture
 npm run check:integration
 ```
 
-这一公开快照在独立 Windows 副本通过源码构建、55 项测试及架构和集成检查。进阶原生依赖从零搭建及在其他机器上的运行仍需复验。计算与仿真适用于项目已实现的元件模型和回路条件，工程选型还需核对厂家数据与实际工况。
+运行 `npm test` 可构建公开源码并执行回归测试，包括图框单元格操作。进阶原生依赖从零搭建及在其他机器上的运行仍需复验。计算与仿真适用于项目已实现的元件模型和回路条件，工程选型还需核对厂家数据与实际工况。
 
 ## 基于什么开发
 
@@ -120,7 +120,7 @@ npm run build
 npm run start:teaching
 ```
 
-Use `npm run start:advanced` to open the advanced workbench. Its transient solver requires a local Hopsan environment and the Deatalos native extension. See the [native setup guide](docs/NATIVE.md). Run `npm test` for the public tests. The source snapshot passed the build and 55 tests in an isolated Windows checkout. Rebuilding the native environment from scratch has yet to be independently verified.
+Use `npm run start:advanced` to open the advanced workbench. Its transient solver requires a local Hopsan environment and the Deatalos native extension. See the [native setup guide](docs/NATIVE.md). Run `npm test` for the public tests. The public test suite includes title-block table editing. Rebuilding the native environment from scratch has yet to be independently verified.
 
 ### Technology and credits
 

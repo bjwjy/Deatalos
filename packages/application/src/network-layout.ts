@@ -17,6 +17,7 @@ import {
   saveTreeRoutes,
   networkTreeRouteCacheKey,
 } from './network-routing-cache.js';
+import { repairFallbackDrawing } from './network-route-repair.js';
 import { canonical } from './content.js';
 import { arrangeIndependentCircuits } from './network-independent-layout.js';
 import type { Point } from './network-tree-geometry.js';
@@ -133,6 +134,16 @@ export function planNetworkLayout(document: unknown, input: unknown): Result<Net
       const optimized = optimizeNetworkDrawing(candidate, networkTreeGeometry, 'routing');
       if (optimized.ok) return optimizedPlan(project, req, optimized.value);
     }
+    const editable = new Set(
+      routes.filter((r) => ids.includes(r.connectionId) && r.mode === 'avoid').map((r) => r.connectionId),
+    );
+    if (req.connectionIds === null && editable.size) {
+      const repaired = repairFallbackDrawing(candidate, networkTreeGeometry, editable);
+      if (!repaired.ok) return repaired;
+      return routes.some((r) => r.mode === 'manual')
+        ? drawingPlan(project, req, candidate, repaired.value.drawing.paths)
+        : optimizedPlan(project, req, repaired.value);
+    }
     const drawing = networkDrawingRoutes(candidate);
     for (const id of ids) {
       const r = routes.find((r) => r.connectionId === id);
@@ -207,6 +218,15 @@ export function planNetworkLayout(document: unknown, input: unknown): Result<Net
     };
     const optimized = optimizeNetworkDrawing(ready, networkTreeGeometry, 'arrangement');
     if (optimized.ok) return optimizedPlan(project, req, optimized.value);
+    if (ready.design.connections.length) {
+      const repaired = repairFallbackDrawing(
+        ready,
+        networkTreeGeometry,
+        new Set(ready.design.connections.map((e) => e.id)),
+      );
+      if (repaired.ok) return optimizedPlan(project, req, repaired.value);
+      return repaired;
+    }
   }
   const changedIds = [...moving].filter((id) => {
     const before = project.layout.components.find((p) => p.componentId === id),
@@ -273,6 +293,11 @@ function drawingPlan(
   const document = parsed.value,
     changedIds: string[] = [],
     oldPaths = readTreeRoutes(before, networkTreeGeometry);
+  if (
+    readTreeRoutes(document, networkTreeGeometry)?.size !==
+    document.layout.routes.filter((r) => r.mode === 'avoid').length
+  )
+    return fail('走线未通过保存后的几何校验，原图保持。');
   for (const p of document.layout.components) {
     const old = before.layout.components.find((c) => c.componentId === p.componentId);
     if (old?.x !== p.x || old?.y !== p.y || (old.rotation ?? 0) !== (p.rotation ?? 0) || old.mirrored !== p.mirrored)
@@ -282,7 +307,12 @@ function drawingPlan(
     const old = before.layout.nodes.find((n) => n.nodeId === p.nodeId);
     if (old?.x !== p.x || old?.y !== p.y) changedIds.push(p.nodeId);
   }
-  for (const [id, path] of paths) if (JSON.stringify(oldPaths?.get(id)) !== JSON.stringify(path)) changedIds.push(id);
+  for (const [id, path] of paths)
+    if (
+      document.layout.routes.some((r) => r.connectionId === id && r.mode === 'avoid') &&
+      JSON.stringify(oldPaths?.get(id)) !== JSON.stringify(path)
+    )
+      changedIds.push(id);
   return {
     ok: true,
     value: immutable({

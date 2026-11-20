@@ -20,6 +20,7 @@ function openTeachingDemo(demo: TeachingDemo, trigger: HTMLButtonElement): void 
     <header class="v13-dialog-header">
       <span class="v13-dialog-heading-icon">${playIcon}</span>
       <h2 id="componentTeachingTitle">教学演示回路<small>${demo.name} · ${demo.category}</small></h2>
+      <button class="dialog-button teaching-control teaching-playback" data-teaching-play data-press-feedback="off" type="button">${playIcon}<span>播放演示</span></button>
       <button class="dialog-close" data-teaching-close data-press-feedback="off" type="button" aria-label="关闭教学演示">${networkUiIcon('close')}</button>
     </header>
     <div class="v13-dialog-body teaching-body">
@@ -43,15 +44,20 @@ function openTeachingDemo(demo: TeachingDemo, trigger: HTMLButtonElement): void 
   const observation = dialog.querySelector('[data-teaching-observation]');
   const drawing = dialog.querySelector('[data-teaching-drawing]');
   const toggle = dialog.querySelector<HTMLButtonElement>('[data-teaching-toggle]');
+  const play = dialog.querySelector<HTMLButtonElement>('[data-teaching-play]');
+  const playLabel = play?.querySelector('span');
   const close = dialog.querySelector('[data-teaching-close]');
-  if (!condition || !summary || !action || !observation || !drawing || !toggle || !close)
+  if (!condition || !summary || !action || !observation || !drawing || !toggle || !play || !playLabel || !close)
     throw new Error('Teaching demo template is incomplete');
 
   const scenes = [demo, demo.alternate, ...(demo.additional ?? [])];
   let sceneIndex = 0;
+  let playbackTimer: number | undefined;
   const render = (): void => {
     const scene = scenes[sceneIndex];
     if (!scene) return;
+    delete dialog.dataset.teachingStroke;
+    toggle.removeAttribute('aria-disabled');
     condition.textContent = scene.condition;
     summary.textContent = scene.summary;
     action.textContent = scene.action;
@@ -76,23 +82,53 @@ function openTeachingDemo(demo: TeachingDemo, trigger: HTMLButtonElement): void 
       drawing.innerHTML = scene.drawing;
     }
     if (scene.stroke) {
+      const motion = drawing.querySelector('[data-teaching-motion]');
       const settle = () => {
-        if (!dialog.open) return;
+        if (!dialog.open || (motion && !drawing.contains(motion))) return;
         dialog.dataset.teachingStroke = 'ready';
         toggle.removeAttribute('aria-disabled');
         condition.textContent = scene.condition;
       };
-      const animation = drawing.querySelector('[data-teaching-motion]')?.getAnimations()[0];
+      const animation = motion?.getAnimations()[0];
       if (animation) {
         dialog.dataset.teachingStroke = 'moving';
         toggle.setAttribute('aria-disabled', 'true');
         condition.textContent = '正在' + scene.stroke;
-        animation.onfinish = settle;
+        void animation.finished.then(settle, settle);
       } else settle();
     }
   };
+  const stopPlayback = (): void => {
+    window.clearTimeout(playbackTimer);
+    playbackTimer = undefined;
+    playLabel.textContent = '播放演示';
+  };
+  const playScene = (): void => {
+    render();
+    // Leave time to read the condition after even the longest teaching stroke.
+    playbackTimer = window.setTimeout(() => {
+      if (!dialog.open || sceneIndex === scenes.length - 1) {
+        stopPlayback();
+        return;
+      }
+      sceneIndex++;
+      playScene();
+    }, 2600);
+  };
+  play.addEventListener('click', () => {
+    if (playbackTimer !== undefined) {
+      stopPlayback();
+      return;
+    }
+    // An explicit play request enables motion only in this teaching dialog.
+    dialog.dataset.teachingMotionEnabled = '';
+    sceneIndex = 0;
+    playLabel.textContent = '停止自动播放';
+    playScene();
+  });
   toggle.addEventListener('click', () => {
     if (toggle.getAttribute('aria-disabled') === 'true') return;
+    stopPlayback();
     sceneIndex = (sceneIndex + 1) % scenes.length;
     render();
   });
@@ -100,6 +136,7 @@ function openTeachingDemo(demo: TeachingDemo, trigger: HTMLButtonElement): void 
   close.addEventListener('click', closeDemo);
   parent.addEventListener('close', closeDemo);
   dialog.addEventListener('close', () => {
+    stopPlayback();
     parent.removeEventListener('close', closeDemo);
     dialog.remove();
     if (parent.open) trigger.focus({ preventScroll: true });

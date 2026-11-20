@@ -16,9 +16,9 @@ import {
 } from './network-duty-return-pipes.js';
 
 export const supplyPipeFlowConditions = [
-  '有损供油限单台定量泵、单油箱和两只在行程内同时动作的普通双作用缸，各用一只独立四通换向阀。吸油须为唯一理想通路，泵出口至各阀 P 口允许唯一通路上的物理干线和支管。支管取本缸实际进油量，干线取两缸实际进油量之和。',
+  '有损供油限单台定量泵、单油箱和两至三只在行程内同时动作的普通双作用缸，各用一只独立四通换向阀。吸油须为唯一理想通路，泵出口至各阀 P 口允许唯一通路上的物理干线和支管。支管取本缸实际进油量，各级干线取下游各缸实际进油量之和。',
   '各段按保存管径、有效管长、粗糙度、局部阻力系数和油液参数求压降。由泵出口沿供油路径扣除压降得到各阀 P 口压力。已建模供油路径的手填供油损失须为零。泵口直动溢流直回同一油箱，溢流量不计入供油管，轴功率按泵出口与油箱的压差及泵总供流计算。',
-  '可配普通回油管。供油环路、阀后物理管、先导溢流和回油附件混接、有损吸油、空化及瞬态待核。',
+  '可配普通回油管，双缸可配泵口先导溢流及共用滤芯的已建模回油路径。供油环路、阀后物理管、其他回油附件混接、有损吸油、空化及瞬态待核。',
 ] as const;
 
 interface SupplySegment {
@@ -60,14 +60,21 @@ export function findSupplyPipeTopology(
   if (!hasPhysicalSupplyPath(paths, pump, valves)) return { ok: true, value: null };
   if (
     pump.definition.id !== 'teaching:pump' ||
-    valves.length !== 2 ||
-    parts.filter((part) => part.typeId === 'cylinder').length !== 2
+    (valves.length !== 2 && valves.length !== 3) ||
+    parts.filter((part) => part.typeId === 'cylinder').length !== valves.length
   )
     return {
       ok: false,
-      diagnostics: [unsupported('有损供油管核算限单台定量泵和两只普通双作用缸，各缸使用独立四通换向阀。')],
+      diagnostics: [unsupported('有损供油管核算限单台定量泵和两至三只普通双作用缸，各缸使用独立四通换向阀。')],
     };
-  if (parts.some((part) => isReturnTreeAccessory(part) || part.definition.id === 'teaching:pilot-relief'))
+  const pilotFilterMix =
+    valves.length === 2 &&
+    parts.some((part) => part.definition.id === 'teaching:pilot-relief') &&
+    parts.some((part) => part.typeId === 'return-filter');
+  if (
+    !pilotFilterMix &&
+    parts.some((part) => isReturnTreeAccessory(part) || part.definition.id === 'teaching:pilot-relief')
+  )
     return { ok: false, diagnostics: [unsupported('有损供油与先导溢流或回油附件的混接待核。')] };
 
   const segments = new Map<
@@ -106,7 +113,7 @@ export function findSupplyPipeTopology(
   }
   const parsed: SupplySegment[] = [];
   for (const { pipe, upstreamId, valveIds } of segments.values()) {
-    const role = valveIds.length === 2 ? '供油干线' : '供油支管';
+    const role = valveIds.length === valves.length ? '供油干线' : valveIds.length > 1 ? '供油分干线' : '供油支管';
     parsed.push({ id: pipe.id, parameters: pipeParameters(project, pipe, role), upstreamId, valveIds, role });
   }
   return { ok: true, value: { segments: parsed, routes } };

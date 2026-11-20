@@ -59,19 +59,21 @@ export function createNetworkShortcutPanels(hooks: Hooks) {
     lastRun = '',
     selectedTask = '';
   let mirrors: { source: HTMLInputElement; view: HTMLInputElement }[] = [];
+  basicSummary.innerHTML =
+    '<div><dt>需求压力</dt><dd><span></span><small>MPa</small></dd></div><div><dt>需求流量</dt><dd><span></span><small>L/min</small></dd></div><div><dt>轴功率估计</dt><dd><span></span><small>kW</small></dd></div>';
+  const output = [...basicSummary.querySelectorAll('dd span')];
+
   function renderBasicSummary(): void {
     const result = element('basicResult');
     const table = result.querySelector('table');
     const row = table?.querySelector('tbody tr');
     const values = row ? [...row.querySelectorAll('td')] : [];
-    basicSummary.innerHTML =
-      '<div><dt>需求压力</dt><dd><span></span><small>MPa</small></dd></div><div><dt>需求流量</dt><dd><span></span><small>L/min</small></dd></div><div><dt>轴功率估计</dt><dd><span></span><small>kW</small></dd></div>';
-    const output = [...basicSummary.querySelectorAll('dd span')];
-    if (output[0]) output[0].textContent = values[1]?.textContent ?? '—';
-    if (output[1]) output[1].textContent = values[2]?.textContent ?? '—';
-    if (output[2]) output[2].textContent = values[3]?.textContent ?? '—';
+    for (const [i, node] of output.entries()) {
+      const text = values[i + 1]?.textContent ?? '—';
+      if (node.textContent !== text) node.textContent = text;
+    }
     const message = element('basicStatus').textContent ?? '';
-    basicStatus.textContent = table
+    const status = table
       ? result.dataset.satisfied === 'true'
         ? '已核算'
         : '有供油缺口'
@@ -80,9 +82,10 @@ export function createNetworkShortcutPanels(hooks: Hooks) {
         : message.includes('超过') || message.includes('不支持')
           ? '未通过核算'
           : '尚未核算';
-    basicStatus.title = message;
-    basicSummary.dataset.valid = String(!!table);
-    select.hidden = !table;
+    if (basicStatus.textContent !== status) basicStatus.textContent = status;
+    if (basicStatus.title !== message) basicStatus.title = message;
+    if (basicSummary.dataset.valid !== String(!!table)) basicSummary.dataset.valid = String(!!table);
+    if (select.hidden !== !table) select.hidden = !table;
   }
   function taskOptions() {
     return [...element('basicPhases').querySelectorAll<HTMLElement>('[data-duty-action]')].flatMap((action) => {

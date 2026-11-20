@@ -136,6 +136,7 @@ export function parseDrawingSettings(input: unknown): Result<DrawingSettings> {
       ...(template?.ok
         ? [
             ...template.value.fields.map(({ key }) => 'templateHeading.' + key),
+            ...(template.value.table ?? []).filter((c) => !c.field).map((c) => 'tableText.' + c.id),
             'templateSpare.0',
             'templateSpare.1',
             'templateSpare.2',
@@ -242,6 +243,12 @@ export function parseCalculationPdfSource(input: unknown): Result<CalculationBoo
     return fail('BOOK_FORMULA_FORMAT_INVALID', 'PDF计算书使用排版公式；LaTeX源码选项仅用于Word。');
   return book;
 }
+function includesTransient(coverage: NetworkDutyCoverage): boolean {
+  return (
+    !!coverage.transientScope ||
+    coverage.phases.some((p) => p.kind === 'calculated' && p.demand.boundaryAssessment?.transientStudy)
+  );
+}
 function includesAccumulatorTransfer(coverage: NetworkDutyCoverage): boolean {
   return coverage.phases.some((phase) => phase.kind === 'calculated' && phase.demand.boundaryAssessment?.transfer);
 }
@@ -297,18 +304,22 @@ export function dutyCoverageSections(coverage: NetworkDutyCoverage): readonly Bo
     {
       heading: '工况核算状态',
       paragraphs: [
-        ...(includesAccumulatorTransfer(coverage)
-          ? ['逐工况区分充放油时间已算、目标受阻和待核。可确定的起始状态保留在计算书。']
-          : hasPressurePoint
-            ? [
-                coverage.complete ? '本次纳入的工况均已按稳态条件核算。' : '本次工况核算未覆盖完整需求。',
-                '压力调节工况列出所用模型的稳态工作点。各工况的目标达标情况、待核原因见下表，动态响应另验。',
-              ]
-            : [
-                coverage.complete
-                  ? '本次纳入的工况均已按稳态条件核算。已核算表示给出需求估算，实际供油与动态响应仍需验证。'
-                  : '本次工况核算未覆盖完整需求。仅列出已核算工况的需求；全回路泵需求及规格待复核。',
-              ]),
+        ...(coverage.hasServiceStudy
+          ? ['按工况列出标定输入、适用边界、计算结果与待核原因。']
+          : includesTransient(coverage)
+            ? ['瞬态工况列出指定观测窗口内通过步长收敛校核的结果。尚未观测到的事件及缺少的输入逐项列明。']
+            : includesAccumulatorTransfer(coverage)
+              ? ['各工况分别列出时间、受阻条件或待核原因。已确定的状态及分段结果保留在计算书。']
+              : hasPressurePoint
+                ? [
+                    coverage.complete ? '本次纳入的工况均已按稳态条件核算。' : '本次工况核算未覆盖完整需求。',
+                    '压力调节工况列出所用模型的稳态工作点。各工况的目标达标情况、待核原因见下表，动态响应另验。',
+                  ]
+                : [
+                    coverage.complete
+                      ? '本次纳入的工况均已按稳态条件核算。已核算表示给出需求估算，实际供油与动态响应仍需验证。'
+                      : '本次工况核算未覆盖完整需求。仅列出已核算工况的需求；全回路泵需求及规格待复核。',
+                  ]),
         ...(coverage.phases.length ? [] : ['本次没有可核算的工况输入。']),
       ],
       equations: [],
@@ -319,15 +330,25 @@ export function dutyCoverageSections(coverage: NetworkDutyCoverage): readonly Bo
               phase.kind === 'calculated'
                 ? [
                     phase.name,
-                    phase.demand.boundaryAssessment?.transfer
-                      ? transferStatus[phase.demand.boundaryAssessment.transfer]
-                      : 'pumpPressurePoint' in phase.demand && phase.demand.pumpPressurePoint
-                        ? '压力调节稳态点已核算'
-                        : phase.demand.flowSplit?.kind === 'pending'
-                          ? '基础目标已核算 · 实际分流待核'
-                          : phase.demand.flowSplit
-                            ? '实际分流已核算'
-                            : '已核算',
+                    phase.demand.boundaryAssessment?.loadPending
+                      ? '部分已核算 · 条件待核'
+                      : phase.demand.boundaryAssessment?.transientStudy
+                        ? '瞬态结果已收敛'
+                        : phase.demand.boundaryAssessment?.transfer
+                          ? phase.demand.boundaryAssessment.study
+                            ? { timed: '动作时间已核算', blocked: labels.blocked, pending: '分项待核' }[
+                                phase.demand.boundaryAssessment.transfer
+                              ]
+                            : transferStatus[phase.demand.boundaryAssessment.transfer]
+                          : phase.demand.boundaryAssessment?.controlPending
+                            ? '液压稳态已算 · 开关状态待核'
+                            : 'pumpPressurePoint' in phase.demand && phase.demand.pumpPressurePoint
+                              ? '压力调节稳态点已核算'
+                              : phase.demand.flowSplit?.kind === 'pending'
+                                ? '基础目标已核算 · 实际分流待核'
+                                : phase.demand.flowSplit
+                                  ? '实际分流已核算'
+                                  : '已核算',
                     summary(phase),
                   ]
                 : [phase.name, labels[phase.kind], phase.reason],
@@ -421,7 +442,9 @@ export function dutyFlowSplitSection(name: string, result: ParallelFlowResult): 
       name +
       ' · ' +
       (solved && result.workingSegments
-        ? '单缸有损工作管稳态点'
+        ? result.branches.length === 1
+          ? '单缸有损工作管稳态点'
+          : '多缸有损工作管实际分流'
         : (cylinders === '两缸' ? '双缸' : cylinders) + '实际分流'),
     ...(compact || (solved && (result.divider || result.supplySegments || result.workingSegments))
       ? { keepTogether: true }
@@ -606,6 +629,20 @@ export function dutyFlowSplitSections(name: string, result: ParallelFlowResult):
   const summary = [...paginateBookTable(dutyFlowSplitSection(name, result))];
   if (result.kind !== 'solved') return summary;
   const n = (value: number) => Number(value.toPrecision(6)).toString();
+  if (result.parallelReliefs)
+    summary.push({
+      heading: name + ' · 并联溢流阀分配',
+      paragraphs: ['直动支路取母线与油箱的压差。先导阀取自身 P−T 压差。泵供流等于各缸进油与各溢流支路流量之和。'],
+      equations: [],
+      rows: [
+        ['实例', '状态 / 开启压差', '回箱流量 / 耗散功率'],
+        ...result.parallelReliefs.map((r) => [
+          r.id,
+          (r.flow > 0 ? '开启' : '关闭') + ' / ' + n(r.crack / 1e6) + ' MPa',
+          n(r.flow * 60000) + ' L/min / ' + n(r.flow * r.drop) + ' W',
+        ]),
+      ],
+    });
   if (result.workingSegments?.length)
     summary.push({
       heading: name + ' · 工作管逐段压降',
@@ -621,6 +658,37 @@ export function dutyFlowSplitSections(name: string, result: ParallelFlowResult):
         ]),
       ],
     });
+  if (result.bridgeSegments)
+    summary.push(
+      ...paginateBookTable({
+        heading: name + ' · 桥式回油逐段核算',
+        keepTogether: true,
+        paragraphs: [
+          '各阀 T 口共用桥路入口，按实际接线回同箱。各缸实际排油量之和进入桥路，按节点流量守恒、各闭环压差平衡联立。流量取实际方向。',
+        ],
+        equations: [],
+        rows: [
+          ['管段与流态', '实际流向、流量和端压', '沿程、局部及总压降'],
+          ...result.bridgeSegments.map((r) => [
+            r.role + ' [' + r.connectionId + ']，' + r.regime,
+            (r.flowM3PerS === 0 ? '无流' : r.from + ' → ' + r.to) +
+              '，' +
+              n(r.flowM3PerS * 60000) +
+              ' L/min，入口／出口 ' +
+              n(r.upstreamPressurePa / 1e6) +
+              '／' +
+              n(r.downstreamPressurePa / 1e6) +
+              ' MPa',
+            n(r.frictionDropPa / 1e3) +
+              '／' +
+              n(r.localDropPa / 1e3) +
+              ' kPa，合计 ' +
+              n(r.pressureDropPa / 1e3) +
+              ' kPa',
+          ]),
+        ],
+      }),
+    );
   const supplyPipes = result.supplySegments;
   const firstSupplyPipe = supplyPipes?.[0];
   if (supplyPipes && firstSupplyPipe)
@@ -629,7 +697,7 @@ export function dutyFlowSplitSections(name: string, result: ParallelFlowResult):
         heading: name + ' · 供油管段压降',
         keepTogether: true,
         paragraphs: [
-          '干线取两缸实际进油量之和，支管取本缸实际进油量。泵口溢流直接回箱，不流经供油管。',
+          '各级干线取下游各缸实际进油量之和，支管取本缸实际进油量。泵口溢流直接回箱，不流经供油管。',
           `油液密度 ${n(firstSupplyPipe.densityKgPerM3)} kg/m³，运动黏度 ${n(firstSupplyPipe.kinematicViscosityM2PerS * 1e6)} mm²/s。`,
         ],
         equations: [],
@@ -747,21 +815,21 @@ export function dutyFlowSplitSections(name: string, result: ParallelFlowResult):
       keepTogether: true,
       paragraphs: [
         sharedRelief
-          ? `滤芯流量为两缸排油 ${n(result.branches.reduce((sum, branch) => sum + branch.returnFlowM3PerS, 0) * 60000)} L/min 加溢流 ${n(result.reliefFlowM3PerS * 60000)} L/min。支路附件取所在缸的实际排油量。`
+          ? `滤芯流量为两缸排油 ${n(result.branches.reduce((sum, branch) => sum + branch.returnFlowM3PerS, 0) * 60000)} L/min 加溢流 ${n((result.pilotRelief?.totalFlowM3PerS ?? 0) * 60000)} L/min。支路附件取所在缸的实际排油量。`
           : result.returnAccessories.some((part) => part.parallelBypass)
             ? '共用回油在滤芯与外接物理旁路之间分流。滤芯按本支路实际流量校核额定。两路端压分别列出。'
             : result.returnAccessories.some((part) => part.builtInBypass)
               ? '共用滤芯与内置旁通承受相同压差，流量之和等于合计回油。按滤芯支路实际流量核对额定。'
-              : '各附件按实际接线取其上游各缸排油量之和。单缸支路只取本缸排油，各附件端压按实际流向列出。',
+              : '网状回油按所在桥臂的实际流量计损。树状回油附件取其上游各缸排油量之和。单缸支路只取本缸排油，各附件端压按实际流向列出。',
       ],
       equations: [],
       rows: [
         ['回油附件与所在位置', '实际回油量与端压', '参数与压降'],
         ...result.returnAccessories.map((part) => [
-          `${part.label} [${part.componentId}]，${part.location === 'trunk' ? '共用干线' : (part.cylinderLabels.join('、') || '未参与动作') + (part.location === 'junction' ? ' 汇合支路' : ' 支路')}。`,
+          `${part.label} [${part.componentId}]，${part.location === 'mesh' ? '网状回油桥臂' : part.location === 'trunk' ? '共用干线' : (part.cylinderLabels.join('、') || '未参与动作') + (part.location === 'junction' ? ' 汇合支路' : ' 支路')}。`,
           `${n(part.flowM3PerS * 60000)} L/min，${part.forward ? 'A→B' : 'B→A'}。入口 → 出口 ${n(part.upstreamPressurePa / 1e6)} → ${n(part.downstreamPressurePa / 1e6)} MPa。`,
           (part.kind === 'filter'
-            ? `额定 ${n(part.ratedFlowM3PerS * 60000)} L/min，工况额定压降 ${n(part.ratedDropPa / 1e6)} MPa。${part.builtInBypass ? `内置旁通${part.builtInBypass.state === 'open' ? '开启' : '关闭'}，开启压差 ${n(part.builtInBypass.crackingPressurePa / 1e6)} MPa，有效面积 ${n(part.builtInBypass.effectiveAreaM2 * 1e6)} mm²。滤芯流量 ${n(part.flowM3PerS * 60000)} L/min，旁通流量 ${n(part.builtInBypass.flowM3PerS * 60000)} L/min，合计回油 ${n(part.builtInBypass.totalFlowM3PerS * 60000)} L/min。` : ''}`
+            ? `额定 ${n(part.ratedFlowM3PerS * 60000)} L/min，工况额定压降 ${n(part.ratedDropPa / 1e6)} MPa。${part.builtInBypass ? `内置旁通${part.builtInBypass.state === 'open' ? '开启' : '关闭'}，开启压差 ${n(part.builtInBypass.crackingPressurePa / 1e6)} MPa，有效面积 ${n(part.builtInBypass.effectiveAreaM2 * 1e6)} mm²。滤芯流量 ${n(part.flowM3PerS * 60000)} L/min，旁通流量 ${n(part.builtInBypass.flowM3PerS * 60000)} L/min，${part.parallelBypass ? '壳体过流' : '合计回油'} ${n(part.builtInBypass.totalFlowM3PerS * 60000)} L/min。` : ''}`
             : part.kind === 'meter'
               ? `R=${n(part.resistancePaSPerM3)} Pa·s/m³。`
               : part.kind === 'reverse-throttle'
@@ -779,7 +847,7 @@ export function dutyFlowSplitSections(name: string, result: ParallelFlowResult):
       heading: name + ' · 滤芯外接并联旁路',
       keepTogether: true,
       paragraphs: [
-        `两缸合计回油 ${n(totalFlowM3PerS * 60000)} L/min。滤芯与旁路流量之和等于合计回油，共同压降 ${n(filter.pressureDropPa / 1e6)} MPa。`,
+        `两缸合计回油 ${n(totalFlowM3PerS * 60000)} L/min。滤芯与各旁通流量之和等于合计回油，共同压降 ${n(filter.pressureDropPa / 1e6)} MPa。`,
         `旁路 D ${n(pipe.diameterM * 1000)} mm，L ${n(pipe.lengthM)} m，ε ${n(pipe.roughnessM * 1000)} mm，K=${n(pipe.localLossCoefficient)}。从滤芯入口侧向出口侧计流。`,
       ],
       equations: [],
@@ -790,6 +858,21 @@ export function dutyFlowSplitSections(name: string, result: ParallelFlowResult):
           `${n(filter.flowM3PerS * 60000)} L/min，A→B。入口 → 出口 ${n(filter.upstreamPressurePa / 1e6)} → ${n(filter.downstreamPressurePa / 1e6)} MPa。`,
           `实际压降 ${n(filter.pressureDropPa / 1e6)} MPa。按本支路流量校核额定。`,
         ],
+        ...(filter.builtInBypass
+          ? [
+              [
+                '壳体内置旁通',
+                n(filter.builtInBypass.flowM3PerS * 60000) +
+                  ' L/min，' +
+                  (filter.builtInBypass.state === 'open' ? '开启' : '关闭'),
+                '开启门槛 ' +
+                  n(filter.builtInBypass.crackingPressurePa / 1e6) +
+                  ' MPa，共同压差 ' +
+                  n(filter.pressureDropPa / 1e6) +
+                  ' MPa。',
+              ],
+            ]
+          : []),
         [
           `外接旁路 [${pipe.connectionId}]`,
           `${n(pipe.flowM3PerS * 60000)} L/min，${pipe.regime}，Re=${n(pipe.reynolds)}。入口 → 出口 ${n(pipe.upstreamPressurePa / 1e6)} → ${n(pipe.downstreamPressurePa / 1e6)} MPa。`,
@@ -881,6 +964,32 @@ export function dutyFlowSplitSections(name: string, result: ParallelFlowResult):
   ];
 }
 
+function seriesPipeSections(
+  heading: string,
+  pipes: Extract<CombinedDutyCoverage['phases'][number], { kind: 'solved' }>['supplySegments'],
+): readonly BookSection[] {
+  if (!pipes || pipes.length < 2) return [];
+  const n = (value: number) => Number(value.toPrecision(6)).toString();
+  return paginateBookTable({
+    heading,
+    keepTogether: true,
+    equations: [],
+    paragraphs: [
+      '各段通过同一实际流量，相邻管段共用接点压力。串联合计压降 ' +
+        n(pipes.reduce((sum, row) => sum + row.pressureDropPa, 0) / 1e6) +
+        ' MPa。',
+    ],
+    rows: [
+      ['管段和实际流量', '入口 → 出口压力', '流态与沿程、局部压降'],
+      ...pipes.map((pipe, i) => [
+        '第 ' + (i + 1) + ' 段 [' + pipe.connectionId + '] ' + n(pipe.flowM3PerS * 60000) + ' L/min',
+        n(pipe.upstreamPressurePa / 1e6) + ' → ' + n(pipe.downstreamPressurePa / 1e6) + ' MPa',
+        pipe.regime + '，沿程 ' + n(pipe.frictionDropPa / 1000) + ' kPa，局部 ' + n(pipe.localDropPa / 1000) + ' kPa。',
+      ]),
+    ],
+  });
+}
+
 export function dutyGroupSections(groups: readonly DutyGroupCoverage[]): readonly BookSection[] {
   const n = (value: number) => Number(value.toPrecision(6)).toString();
   const flow = (value: number) => n(value * 60000) + ' L/min';
@@ -895,40 +1004,57 @@ export function dutyGroupSections(groups: readonly DutyGroupCoverage[]): readonl
       ' · 双作用缸 ' +
       (group.cylinders.map(({ id, label }) => component(id, label)).join('、') || '待确认');
     if (group.sharedReturn)
-      return group.sharedReturn.map((phase): BookSection => {
+      return group.sharedReturn.flatMap((phase): readonly BookSection[] => {
         const pipe = phase.kind === 'solved' ? phase.pipe : undefined;
-        return {
-          heading: title + ' · ' + phase.name,
-          keepTogether: true,
-          paragraphs: [
-            boundary,
-            ...(pipe && groupIndex === 0
-              ? [
-                  `共用回油干线 [${pipe.connectionId}] ${flow(pipe.flowM3PerS)}，汇合点 ${p(pipe.upstreamPressurePa)}，油箱 ${p(pipe.downstreamPressurePa)}。流态 ${pipe.regime}，Re=${n(pipe.reynolds)}，沿程 ${p(pipe.frictionDropPa)}、局部 ${p(pipe.localDropPa)}、合计 ${p(pipe.pressureDropPa)}。`,
-                ]
-              : []),
-          ],
-          equations: [],
-          rows: [
-            ['本组已知条件', '实际供油与回油', '缸速与判定'],
-            [
-              [
-                phase.estimatedSupplyM3PerS === undefined
-                  ? ''
-                  : '已知零压供流 ' + flow(phase.estimatedSupplyM3PerS) + '。',
-                phase.target
-                  ? `${phase.target.label} 保留目标 ${flow(phase.target.targetFlowM3PerS)}、${n(phase.target.targetSpeedMPerS * 1000)} mm/s。`
-                  : '',
-              ].join(''),
-              phase.kind === 'solved'
-                ? `泵出口 ${p(phase.pumpPa)}，轴功率 ${n(phase.shaftPowerW)} W。进缸 ${flow(phase.cylinderFlowM3PerS)}，缸排油 ${flow(phase.returnFlowM3PerS)}，直动溢流 ${flow(phase.reliefFlowM3PerS)}，泄漏 ${flow(phase.leakageM3PerS)}。`
-                : '实际压力、流量、缸速和轴功率待核。',
-              phase.kind === 'solved'
-                ? `阀 T 口 ${p(phase.pipe.upstreamPressurePa)}，缸回油腔 ${p(phase.chamberPa)}，缸速 ${n(phase.speedMPerS * 1000)} mm/s。${phase.reason}`
-                : phase.reason,
+        return [
+          {
+            heading: title + ' · ' + phase.name,
+            keepTogether: true,
+            paragraphs: [
+              boundary,
+              ...(phase.kind === 'solved' && phase.suctionTank && phase.suctionPa !== undefined
+                ? [
+                    '泵吸油箱 [' +
+                      phase.suctionTank +
+                      '] ' +
+                      p(phase.suctionPa) +
+                      '，共用回油流入 [' +
+                      group.tankId +
+                      ']。',
+                  ]
+                : []),
+              ...(pipe && groupIndex === 0 && phase.kind === 'solved' && (phase.segments?.length ?? 1) === 1
+                ? [
+                    `共用回油干线 [${pipe.connectionId}] ${flow(pipe.flowM3PerS)}，汇合点 ${p(pipe.upstreamPressurePa)}，油箱 ${p(pipe.downstreamPressurePa)}。流态 ${pipe.regime}，Re=${n(pipe.reynolds)}，沿程 ${p(pipe.frictionDropPa)}、局部 ${p(pipe.localDropPa)}、合计 ${p(pipe.pressureDropPa)}。`,
+                  ]
+                : []),
             ],
-          ],
-        };
+            equations: [],
+            rows: [
+              ['本组已知条件', '实际供油与回油', '缸速与判定'],
+              [
+                [
+                  phase.estimatedSupplyM3PerS === undefined
+                    ? ''
+                    : '已知零压供流 ' + flow(phase.estimatedSupplyM3PerS) + '。',
+                  phase.target
+                    ? `${phase.target.label} 保留目标 ${flow(phase.target.targetFlowM3PerS)}、${n(phase.target.targetSpeedMPerS * 1000)} mm/s。`
+                    : '',
+                ].join(''),
+                phase.kind === 'solved'
+                  ? `泵出口 ${p(phase.pumpPa)}，轴功率 ${n(phase.shaftPowerW)} W。进缸 ${flow(phase.cylinderFlowM3PerS)}，缸排油 ${flow(phase.returnFlowM3PerS)}，直动溢流 ${flow(phase.reliefFlowM3PerS)}，泄漏 ${flow(phase.leakageM3PerS)}。`
+                  : '实际压力、流量、缸速和轴功率待核。',
+                phase.kind === 'solved'
+                  ? `阀 T 口 ${p(phase.pipe.upstreamPressurePa)}，缸回油腔 ${p(phase.chamberPa)}，缸速 ${n(phase.speedMPerS * 1000)} mm/s。${phase.reason}`
+                  : phase.reason,
+              ],
+            ],
+          },
+          ...seriesPipeSections(
+            phase.name + ' · 共用回油干线逐段压降',
+            phase.kind === 'solved' && groupIndex === 0 ? phase.segments : undefined,
+          ),
+        ];
       });
     return dutyCoverageSections(group.coverage).map((section, index) => ({
       ...section,
@@ -957,7 +1083,7 @@ export function dutyCombinedSections(coverage: CombinedDutyCoverage): readonly B
     const stage = large?.kind === 'solved' ? large.unloading : undefined;
     return stage
       ? [
-          `${stage.label}${stage.open ? '开启' : '关闭'}，先导压差 ${p(stage.pilotDifferentialPa)}（动作 ${p(stage.tripDifferentialPa)}，复位 ${p(stage.resetDifferentialPa)}）。卸荷回箱 ${flow(stage.flowM3PerS)}。`,
+          `${stage.label}${stage.open ? '开启' : '关闭'}，先导压差 ${p(stage.pilotDifferentialPa)}（动作 ${p(stage.tripDifferentialPa)}，复位 ${p(stage.resetDifferentialPa)}）。${stage.tapLabel && phase.kind === 'solved' && phase.supplyPipe ? 'X 取压点：' + stage.tapLabel + '。' : ''}卸荷回箱 ${flow(stage.flowM3PerS)}。`,
         ]
       : [];
   };
@@ -968,58 +1094,67 @@ export function dutyCombinedSections(coverage: CombinedDutyCoverage): readonly B
     const hasLoss = pump.localReliefM3PerS > 0 || pump.leakageM3PerS > 0;
     return '本泵总回箱 ' + flow(total) + '。' + (hasLoss ? losses : '');
   };
-  const sections = coverage.phases.map((phase): BookSection => ({
-    heading:
-      phase.name +
-      (coverage.hasUnloading ? ' · 高低压双泵卸荷' : phase.pumps.length === 2 ? ' · 双泵合流' : ' · 多泵合流'),
-    paragraphs:
-      phase.kind === 'solved'
-        ? [
-            `${phase.supplyPipe ? '母线出口压力' : '母线压力'} ${p(phase.busPa)}，母线溢流 ${flow(phase.busReliefM3PerS)}。`,
-            ...(phase.supplyPipe
-              ? [
-                  `供油母线 [${phase.supplyPipe.connectionId}] 实际流量 ${flow(phase.supplyPipe.flowM3PerS)}，入口 ${p(phase.supplyPipe.upstreamPressurePa)}，出口 ${p(phase.busPa)}。流态 ${phase.supplyPipe.regime}，Re=${n(phase.supplyPipe.reynolds)}，沿程 ${p(phase.supplyPipe.frictionDropPa)}、局部 ${p(phase.supplyPipe.localDropPa)}、合计 ${p(phase.supplyPipe.pressureDropPa)}。`,
-                ]
-              : []),
-            ...phase.loads.map(
-              (load) =>
-                `${load.label} 实际进油 ${flow(load.flowM3PerS)}、${speed(load.kind, load.speed)}。目标 ${flow(load.targetFlowM3PerS)}、${speed(load.kind, load.targetSpeed)}，${load.matchesTarget ? '达标' : '未达标'}。`,
-            ),
-            phase.matchesTarget ? '目标速度（±1%）与泵预算均满足。' : '目标速度或泵预算未满足或待核。',
-            ...(phase.targetWindow.kind === 'incompatible'
-              ? ['本工况各执行器的目标速度在当前阀口和负载下没有共同母线压力范围。']
-              : []),
-            ...unloadingStatus(phase),
-          ]
-        : [
-            phase.reason,
-            ...(coverage.hasUnloading ? ['卸荷阀稳态待核。'] : []),
-            ...phase.targets.map(
-              (target) =>
-                target.label +
-                ' 保留目标 ' +
-                flow(target.targetFlowM3PerS) +
-                '、' +
-                speed(target.kind, target.targetSpeed) +
-                '。',
-            ),
-          ],
-    equations: [],
-    rows: [
-      ['泵', '入母线流量、状态与功率', '压力、分流与原因'],
-      ...phase.pumps.map((pump) => [
-        pump.label + ' [' + pump.pumpId + ']',
-        pump.kind === 'solved'
-          ? `${flow(pump.busFlowM3PerS)} · ${pump.valveLabel}${pump.open ? '开启' : '关闭'} · ${pump.shaftPowerW === undefined ? '轴功率待核' : '轴功率 ' + n(pump.shaftPowerW) + ' W'}`
-          : '实际供流、止回阀状态和功率待核',
-        pump.kind === 'solved'
-          ? `泵出口 ${p(pump.outletPa)}。${pump.openingThresholdPa === undefined ? '' : '开启门槛 ' + p(pump.openingThresholdPa) + '。'}${pumpReturn(pump)}${pump.reason}`
-          : (pump.estimatedSupplyM3PerS === undefined
-              ? ''
-              : '已知零压供流 ' + flow(pump.estimatedSupplyM3PerS) + '。') + pump.reason,
-      ]),
-    ],
-  }));
+  const sections = coverage.phases.flatMap((phase): readonly BookSection[] => [
+    {
+      heading:
+        phase.name +
+        (coverage.hasUnloading ? ' · 高低压双泵卸荷' : phase.pumps.length === 2 ? ' · 双泵合流' : ' · 多泵合流'),
+      paragraphs:
+        phase.kind === 'solved'
+          ? [
+              `${phase.supplyPipe ? '母线出口压力' : '母线压力'} ${p(phase.busPa)}，母线溢流 ${flow(phase.busReliefM3PerS)}。`,
+              ...(phase.supplyPipe && (phase.supplySegments?.length ?? 1) === 1
+                ? [
+                    `供油母线 [${phase.supplyPipe.connectionId}] 实际流量 ${flow(phase.supplyPipe.flowM3PerS)}，入口 ${p(phase.supplyPipe.upstreamPressurePa)}，出口 ${p(phase.busPa)}。流态 ${phase.supplyPipe.regime}，Re=${n(phase.supplyPipe.reynolds)}，沿程 ${p(phase.supplyPipe.frictionDropPa)}、局部 ${p(phase.supplyPipe.localDropPa)}、合计 ${p(phase.supplyPipe.pressureDropPa)}。`,
+                  ]
+                : []),
+              ...(phase.returnTank ? ['执行器回油箱 [' + phase.returnTank + ']。'] : []),
+              ...phase.loads.map(
+                (load) =>
+                  `${load.label} 实际进油 ${flow(load.flowM3PerS)}、${speed(load.kind, load.speed)}。目标 ${flow(load.targetFlowM3PerS)}、${speed(load.kind, load.targetSpeed)}，${load.matchesTarget ? '达标' : '未达标'}。`,
+              ),
+              phase.matchesTarget ? '目标速度（±1%）与泵预算均满足。' : '目标速度或泵预算未满足或待核。',
+              ...(phase.targetWindow.kind === 'incompatible'
+                ? ['本工况各执行器的目标速度在当前阀口和负载下没有共同母线压力范围。']
+                : []),
+              ...unloadingStatus(phase),
+            ]
+          : [
+              phase.reason,
+              ...(coverage.hasUnloading ? ['卸荷阀稳态待核。'] : []),
+              ...phase.targets.map(
+                (target) =>
+                  target.label +
+                  ' 保留目标 ' +
+                  flow(target.targetFlowM3PerS) +
+                  '、' +
+                  speed(target.kind, target.targetSpeed) +
+                  '。',
+              ),
+            ],
+      equations: [],
+      rows: [
+        ['泵', '入母线流量、状态与功率', '压力、分流与原因'],
+        ...phase.pumps.map((pump) => [
+          pump.label + ' [' + pump.pumpId + ']',
+          pump.kind === 'solved'
+            ? `${flow(pump.busFlowM3PerS)} · ${pump.valveLabel}${pump.open ? '开启' : '关闭'} · ${pump.shaftPowerW === undefined ? '轴功率待核' : '轴功率 ' + n(pump.shaftPowerW) + ' W'}`
+            : pump.zeroDelivery
+              ? '0 L/min · 止回无通流 · 模型轴功率 0 W'
+              : '实际供流、止回阀状态和功率待核',
+          pump.kind === 'solved'
+            ? `${pump.displacementM3PerRev === undefined ? '' : '实际排量 ' + n(pump.displacementM3PerRev * 1e6) + ' cm³/rev。'}泵出口 ${p(pump.outletPa)}。${pump.openingThresholdPa === undefined ? '' : '开启门槛 ' + p(pump.openingThresholdPa) + '。'}${pumpReturn(pump)}${pump.reason}${pump.suctionPa === undefined ? '' : ' 吸油箱 [' + pump.suctionTank + '] ' + p(pump.suctionPa) + '。'}`
+            : (pump.estimatedSupplyM3PerS === undefined
+                ? ''
+                : '已知零压供流 ' + flow(pump.estimatedSupplyM3PerS) + '。') + pump.reason,
+        ]),
+      ],
+    },
+    ...seriesPipeSections(
+      phase.name + ' · 供油母线逐段压降',
+      phase.kind === 'solved' ? phase.supplySegments : undefined,
+    ),
+  ]);
   if (coverage.pendingPhases.length)
     sections.push({
       heading: '合流工况待核',
@@ -1059,10 +1194,43 @@ export function calculationBook(
   if (record.dutyCoverage) sections.push(...dutyCoverageSections(record.dutyCoverage));
   if (record.dutyGroups) sections.push(...dutyGroupSections(record.dutyGroups));
   if (record.dutyCombined) sections.push(...dutyCombinedSections(record.dutyCombined));
+  if (record.cavityWindow) {
+    const w = record.cavityWindow;
+    sections.push({
+      heading: '等效空穴与补油复压',
+      paragraphs: [
+        '所选运行记录窗口 ' +
+          Number(w.fromS.toPrecision(7)) +
+          ' 至 ' +
+          Number(w.toS.toPrecision(7)) +
+          ' s。体积为对应油口的内核等效缺油体积。时刻取首个符合条件的采样；复压要求该口已采到空穴、随后体积归零且原生压力恢复为正。',
+        '原生零压为此集总模型的数值边界。此记录不用于预测真实蒸气压、空蚀或溃灭峰压。',
+      ],
+      equations: [],
+      rows: [['工作口', '采样结果', '体积与事件时刻'], ...w.rows],
+    });
+    if (w.inletRows.length)
+      sections.push({
+        heading: '泵入口采样最低压力',
+        paragraphs: ['与空穴表使用同一记录窗口。数值基准工程的入口压力仅按原记录列出。'],
+        equations: [],
+        rows: [['泵口', '已知采样最低压力', '首次对应时刻'], ...w.inletRows],
+      });
+  }
   if (record.dutyConditions) {
     const transfer = record.dutyCoverage && includesAccumulatorTransfer(record.dutyCoverage);
     sections.push({
-      heading: transfer ? '蓄能器充放油核算适用条件' : '稳态核算适用条件',
+      heading: record.dutyCoverage?.hasServiceStudy
+        ? '标定试验及工况适用条件'
+        : record.dutyCoverage && includesTransient(record.dutyCoverage)
+          ? record.dutyCoverage.transientScope === 'mixed'
+            ? '各工况核算适用条件'
+            : '瞬态核算适用条件'
+          : record.dutyCoverage?.phases.some((p) => p.kind === 'calculated' && p.demand.boundaryAssessment?.study)
+            ? '储能与自动动作核算适用条件'
+            : transfer
+              ? '蓄能器充放油核算适用条件'
+              : '稳态核算适用条件',
       paragraphs: record.dutyConditions,
       equations: [],
       rows: [],
@@ -1115,7 +1283,7 @@ export function calculationBook(
           (record.dutyCoverage && !record.dutyCoverage.complete
             ? '各工况的核算结果与未覆盖原因见下表。'
             : hasBoundary
-              ? '按各工况的保存压力边界和指定储能状态核算。'
+              ? '按各工况的保存接线、边界和输入条件核算。'
               : '按本次预览的效率、背压和管路损失条件进行初选，不代表已完成仿真。') +
           '公式代入采用国际单位，末项给出常用单位结果。'
         : '根据所选有效结果进行辅助计算。公式代入采用国际单位，末项给出常用单位结果。',

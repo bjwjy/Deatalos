@@ -1,3 +1,4 @@
+import { sharedDrawingTracks, visibleTrackPath, longestTrack } from './network-shared-tracks.mjs';
 import { networkDrawingScale, networkComponentPresentationBounds, networkEndpointActive } from '@hyd/domain';
 import {
   parseExportArtifact,
@@ -49,6 +50,7 @@ export function exportNetworkSvg(
   };
   const routeResults = networkDrawingRoutes(project);
   for (const routed of routeResults.values()) if (!routed.ok) return routed;
+  const shared = sharedDrawingTracks(project, routeResults);
   const edges = project.design.connections.map((connection) => {
     const from = endpoint(connection.from),
       to = endpoint(connection.to);
@@ -62,7 +64,8 @@ export function exportNetworkSvg(
     }
     const route = routed.value,
       value = connectionPresentation(project, point, connection.id, parsedBands.value)!;
-    return `<g data-connection-id="${xml(connection.id)}" data-flow="${value.direction}" data-pressure="${value.uniform ? 'uniform' : 'endpoints-only'}"><title>${xml(value.summary)}</title><path d="${routePath(route)}" fill="none" stroke="${value.color}" stroke-width="3"${value.uniform ? '' : ' stroke-dasharray="6 4"'}/>${flowArrow(route, value.direction)}<circle cx="${from.x}" cy="${from.y}" r="6" fill="${value.fromColor}"/><circle cx="${to.x}" cy="${to.y}" r="6" fill="${value.toColor}"/></g>`;
+    const visible = shared.pieces.get(connection.id);
+    return `<g data-connection-id="${xml(connection.id)}" data-flow="${value.direction}" data-pressure="${value.uniform ? 'uniform' : 'endpoints-only'}"><title>${xml(value.summary)}</title><path d="${visible ? visibleTrackPath(visible) : routePath(route)}" fill="none" stroke="${value.color}" stroke-width="3"${value.uniform ? '' : ' stroke-dasharray="6 4"'}/>${flowArrow(visible ? longestTrack(visible) : route, value.direction)}<circle cx="${from.x}" cy="${from.y}" r="6" fill="${value.fromColor}"/><circle cx="${to.x}" cy="${to.y}" r="6" fill="${value.toColor}"/></g>`;
   });
   if (edges.some((v) => v === null))
     return {
@@ -116,7 +119,7 @@ export function exportNetworkSvg(
 <rect x="${left}" y="${top}" width="${width}" height="${height}" fill="white" stroke="none"/>
 <text x="${left + 20}" y="${top + 28}">${xml(project.title)} · 计算步 ${point.identity.tick} / ${point.identity.timeS} s</text>
 <text x="${left + 20}" y="${top + 50}">工程修订 ${point.identity.physicsRevision} · 控制序号 ${point.identity.controlSequence} · 完整来源身份见技术元数据</text>
-${legend}${edges.join('')}${placed.join('')}${pressureGaugeDrawing(project, point)}
+${legend}${edges.join('')}${shared.junctions.map(({ point: p, connectionId }) => `<circle cx="${p.x}" cy="${p.y}" r="4" fill="${connectionPresentation(project, point, connectionId, parsedBands.value)?.color ?? '#526475'}"/>`).join('')}${placed.join('')}${pressureGaugeDrawing(project, point)}
 </svg>`;
   const parsed = parseExportArtifact({
     version: 1,

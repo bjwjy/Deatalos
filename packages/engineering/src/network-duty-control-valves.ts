@@ -10,9 +10,9 @@ export const dutyControlValveTypes: ReadonlySet<string> = new Set([
 ]);
 
 export const controlValveDutyConditions = [
-  '控制阀限单只正向串联在双作用缸供油路。泵出口到阀 P 口只允许理想油路或串联流量计。吸油、供油和回油各有唯一通路。',
+  '控制阀正向串联在双作用缸供油路。两只减压阀或顺序阀串联时，按接线从缸向泵逐级求各阀 P、A 压力，两只 Y 均直回同箱。泵出口到阀 P 口只允许理想油路或串联流量计。吸油、供油和回油各有唯一通路。',
   '阀前流量计压降加到泵出口需求，阀后流量计压降加到 A 口需求。手填其余压降只覆盖 A 口至缸进油腔，须扣除已单列的流量计压降。',
-  '结果是指定负载与速度下的稳态需求。泵流量、限压或溢流约束不足时，目标工况尚不能成立。反向旁通、多个控制阀耦合和动作切换不在本批范围。',
+  '结果是指定负载与速度下的稳态需求。泵流量、限压或溢流约束不足时，目标工况尚不能成立。反向旁通、交叉取压、未标定的多阀泄流和动作切换不在本批范围。',
   '泵实际供流须与该稳态点匹配，剩余流量的卸荷和溢流功率另行核对。',
 ] as const;
 export const controlValveModelConditions: Readonly<Record<string, string>> = {
@@ -29,6 +29,7 @@ export function hasControlDrain(component: NetworkComponent): boolean {
 }
 
 interface ValveDutyInput {
+  readonly seriesControls?: ReadonlySet<string>;
   readonly component: NetworkComponent;
   readonly phaseName: string;
   readonly phaseIndex: number;
@@ -71,7 +72,7 @@ export function estimateDutyControlValve(
     input.seriesDrops.find((drop) => drop.from === arc.from && drop.to === arc.to)?.dropPa;
   let upstreamLossPa = 0;
   for (const arc of route.slice(0, valveIndex)) {
-    if (arc.ideal) continue;
+    if (arc.ideal || (arc.component && input.seriesControls?.has(arc.component.id))) continue;
     const drop = seriesDrop(arc);
     if (drop === undefined)
       return fail('P 口上游只允许理想油路或已核算的串联流量计，其他串联阀或物理管的阀前压降待核。');
@@ -210,7 +211,16 @@ export function estimateDutyControlValve(
     const reducer = component.typeId === 'pressure-reducing';
     add('control-drain', 'Y 泄油口压力', 'model parameter', yPa, 'Pa', [pY], 1e-6, 'MPa');
     if (input.drainBoundary?.coupled)
-      add('control-drain-flow', 'Y 口参考流量（零流量模型）', 'model parameter', 0, 'm³/s', [], 60000, 'L/min');
+      add(
+        'control-drain-flow',
+        input.drainBoundary.leakM3PerS === undefined ? 'Y 口参考流量（零流量模型）' : 'P→Y 实测净泄流',
+        '本工况泄流条件',
+        input.drainBoundary.leakM3PerS ?? 0,
+        'm³/s',
+        [],
+        60000,
+        'L/min',
+      );
     add(
       'control-threshold',
       reducer ? 'A 口关闭阈值' : 'P 口开启门槛',
@@ -350,4 +360,48 @@ export function estimateDutyControlValve(
       'MPa',
     );
   return { ok: true, value: { dropPa, steps, ...(budgetIssue ? { budgetIssue } : {}) } };
+}
+
+/** Reconstruct each upstream working point from the measured downstream load. */
+export function estimateSeriesControlValves(
+  paths: DutyPhasePaths,
+  input: ValveDutyInput,
+  controls: readonly NetworkComponent[],
+): ReturnType<typeof estimateDutyControlValve> {
+  if (controls.length === 1) return estimateDutyControlValve(paths, input);
+  const ids = new Set(controls.map((c) => c.id)),
+    route = paths.uniquePath(input.pumpId + ':P', input.actuatorInlet);
+  const order = route?.flatMap((a) =>
+    a.component && ids.has(a.component.id) && a.from === a.component.id + ':P' && a.to === a.component.id + ':A'
+      ? [a.component]
+      : [],
+  );
+  if (
+    order?.length !== controls.length ||
+    new Set(order).size !== controls.length ||
+    controls.some((c) => !paths.idealReachable(c.id + ':Y', input.tankId + ':T'))
+  )
+    return {
+      ok: false,
+      diagnostics: [
+        diagnostic('DUTY_UNSUPPORTED', '/duty/control-valves', '串联双压力阀必须都在唯一正向供油路上且 Y 直回同箱。'),
+      ],
+    };
+  let dropPa = 0;
+  const steps: CalculationStep[] = [];
+  const issues: string[] = [];
+  for (const c of order.reverse()) {
+    const result = estimateDutyControlValve(paths, {
+      ...input,
+      component: c,
+      seriesControls: ids,
+      cylinderPressurePa: input.cylinderPressurePa + dropPa,
+      drainBoundary: { reference: 'tank', pressurePa: input.tankPressurePa, coupled: false, pipeDropPa: 0, pipes: [] },
+    });
+    if (!result.ok) return result;
+    dropPa += result.value.dropPa;
+    steps.push(...result.value.steps);
+    if (result.value.budgetIssue) issues.push(result.value.budgetIssue);
+  }
+  return { ok: true, value: { dropPa, steps, ...(issues.length ? { budgetIssue: issues.join('。') } : {}) } };
 }

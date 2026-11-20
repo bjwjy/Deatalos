@@ -1,3 +1,13 @@
+let fieldId = 0;
+
+/** A row may also contain action buttons. Only its input should receive native label activation. */
+export function associateFieldLabel(label: HTMLLabelElement): void {
+  const control = label.querySelector<HTMLInputElement | HTMLSelectElement>('input, select');
+  if (!control) return;
+  if (!control.id) control.id = 'network-field-' + ++fieldId;
+  label.htmlFor = control.id;
+}
+
 export function element(id: string): HTMLElement {
   const value = document.getElementById(id);
   if (!value) throw new Error('Missing workbench element: ' + id);

@@ -38,3 +38,40 @@ export function fromSI(quantity: Quantity, value: number): number {
 // Conversion primitives do not infer whether a legacy zero means known or unknown.
 export type PhysicalValue =
   { readonly kind: 'known'; readonly value: number } | { readonly kind: 'unknown'; readonly reason: string };
+
+/** Engineering display scales. Model parameters and serialized files retain SI. */
+export interface EngineeringUnit {
+  readonly label: string;
+  readonly scale: number;
+}
+const unit = (label: string, scale: number): EngineeringUnit => ({ label, scale });
+const engineeringUnits: Readonly<Record<string, readonly EngineeringUnit[]>> = {
+  Pa: [unit('MPa', 1e6), unit('bar', 1e5)],
+  m: [unit('mm', 0.001), unit('m', 1)],
+  'm²': [unit('mm²', 1e-6), unit('cm²', 1e-4)],
+  'm³': [unit('L', 0.001), unit('mL', 1e-6)],
+  'm³/s': [unit('L/min', 1 / 60000), unit('mL/s', 1e-6)],
+  'm³/rev': [unit('cm³/rev', 1e-6)],
+  'm/s': [unit('mm/s', 0.001), unit('m/min', 1 / 60)],
+  'rad/s': [unit('r/min', Math.PI / 30), unit('rad/s', 1)],
+  rad: [unit('°', Math.PI / 180), unit('rad', 1)],
+  N: [unit('kN', 1000), unit('N', 1)],
+  W: [unit('kW', 1000), unit('W', 1)],
+  'm²/s': [unit('mm²/s', 1e-6)],
+  'N/m': [unit('N/mm', 1000)],
+  'm³/rad': [unit('cm³/rad', 1e-6)],
+  'm³/(s·Pa)': [unit('L/(min·MPa)', 1 / 6e10)],
+  'Pa·s/m³': [unit('MPa/(L/min)', 6e10)],
+};
+export function engineeringUnitChoices(si: string, key = ''): readonly EngineeringUnit[] {
+  if (key === 'frequencyRadPerS') return [unit('Hz', 2 * Math.PI), unit('rad/s', 1)];
+  if (key === 'lengthM') return [unit('m', 1), unit('mm', 0.001)];
+  return engineeringUnits[si] ?? [unit(si, 1)];
+}
+
+export function engineeringValueText(value: number | undefined, unitSI: string, key = ''): string {
+  if (value === undefined) return '未设置';
+  const choice = engineeringUnitChoices(unitSI, key)[0];
+  if (!choice) throw new Error('Missing engineering unit');
+  return Number((value / choice.scale).toPrecision(8)) + (choice.label === '1' ? '' : ' ' + choice.label);
+}

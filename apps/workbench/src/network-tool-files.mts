@@ -123,6 +123,124 @@ export function createToolFileDialogs(hooks: Hooks) {
   accept.addEventListener('click', () => {
     void confirm();
   });
+  let pendingBatch: { id: string; artifacts: typeof batchArtifacts; path: string | null | undefined } | undefined;
+  async function writeBatch(
+    owner: NetworkToolFiles,
+    id: string,
+    base: NetworkToolBase,
+    artifacts: typeof batchArtifacts,
+    prior: readonly NetworkToolExportItem[],
+  ) {
+    const originalPath = hooks.files.currentPath;
+    const items: NetworkToolExportItem[] = [];
+    accept.disabled = true;
+    reject.disabled = true;
+    summary.textContent += '\n正在归档三份文件…';
+    try {
+      for (const { kind, category, artifact } of artifacts) {
+        const successful = prior.find((item) => item.kind === kind && item.status === 'ok');
+        if (successful) {
+          items.push(successful);
+          continue;
+        }
+        const current = hooks.base();
+        if (
+          operations !== owner ||
+          originalPath !== hooks.files.currentPath ||
+          current.documentSessionId !== base.documentSessionId ||
+          current.revision !== base.revision ||
+          current.physicsRevision !== base.physicsRevision
+        ) {
+          items.push({
+            kind,
+            status: 'skipped',
+            diagnostics: [diagnostic('RESPONSE_STALE', '/files', '连接或工程已变化，未继续写入此文件。')],
+          });
+          continue;
+        }
+        let receipt: NetworkFileOutcome = failure();
+        try {
+          await hooks.files.writeArtifact(artifact, category, 'project', (outcome) => {
+            receipt = outcome;
+          });
+        } catch {
+          receipt = failure();
+        }
+        if (
+          receipt.status === 'ok' &&
+          receipt.operation === 'export' &&
+          receipt.sessionId === base.documentSessionId &&
+          receipt.snapshotId === artifact.snapshotId
+        ) {
+          items.push({
+            kind,
+            status: 'ok',
+            path: receipt.path,
+            requestId: receipt.requestId,
+            snapshotId: receipt.snapshotId,
+          });
+        } else {
+          items.push({
+            kind,
+            status: 'failed',
+            diagnostics:
+              receipt.status === 'error'
+                ? receipt.diagnostics
+                : [diagnostic('EXPORT_RECEIPT_MISSING', '/files', '未取得匹配的归档回执。')],
+          });
+        }
+      }
+    } finally {
+      owner.completeBatch(id, items);
+      if (operations === owner) {
+        if (items.some((item) => item.status !== 'ok')) pendingBatch = { id, artifacts, path: originalPath };
+        else if (pendingBatch?.id === id) pendingBatch = undefined;
+        accept.disabled = false;
+        reject.disabled = false;
+        if (displayed === id) dismiss();
+      }
+    }
+  }
+  function retryBatch(id: string, key: string) {
+    const owner = operations,
+      cached = pendingBatch;
+    const previous = owner.status(id);
+    if (!previous.ok) return previous;
+    const { action, outcome } = previous.value;
+    const items = outcome && 'items' in outcome ? outcome.items : [];
+    const result = owner.retryBatch(id, key, hooks.base(), () => {
+      if (
+        !cached ||
+        cached.id !== id ||
+        cached.path !== hooks.files.currentPath ||
+        !items.length ||
+        action.kind !== 'export-batch'
+      )
+        return {
+          ok: false,
+          diagnostics: [diagnostic('EXPORT_SOURCE_EXPIRED', '/files', '原归档来源已失效，请重新取得曲线和计算结果。')],
+        };
+      if (hooks.files.busy) return { ok: false, diagnostics: [diagnostic('FILE_BUSY', '/files', '文件正在写入。')] };
+      if (items.some((item) => item.kind === 'book' && item.status !== 'ok')) {
+        const book = hooks.calculation({
+          kind: 'book',
+          calculationId: action.calculationId,
+          recordSelection: { kind: 'current' },
+          format: 'docx',
+          destination: 'project',
+        });
+        if (!book.ok)
+          return {
+            ok: false,
+            diagnostics: [diagnostic('EXPORT_SOURCE_EXPIRED', '/files', '原计算结果已失效，请重新计算。')],
+          };
+      }
+      return { ok: true, value: true };
+    });
+    if (!result.ok) return result;
+    if (result.value.started && cached) void writeBatch(owner, id, previous.value.base, cached.artifacts, items);
+    return owner.status(id);
+  }
   async function confirm() {
     const id = displayed,
       owner = operations;
@@ -130,66 +248,7 @@ export function createToolFileDialogs(hooks: Hooks) {
     const saveAs = found.ok && found.value.action.kind === 'save' && found.value.action.mode === 'as';
     const result = owner.confirm(id, hooks.base());
     if (result.ok && result.value.action.kind === 'export-batch') {
-      const artifacts = batchArtifacts;
-      const base = result.value.base;
-      const items: NetworkToolExportItem[] = [];
-      accept.disabled = true;
-      reject.disabled = true;
-      summary.textContent += '\n正在归档三份文件…';
-      try {
-        for (const { kind, category, artifact } of artifacts) {
-          const current = hooks.base();
-          if (
-            operations !== owner ||
-            current.documentSessionId !== base.documentSessionId ||
-            current.revision !== base.revision ||
-            current.physicsRevision !== base.physicsRevision
-          ) {
-            items.push({
-              kind,
-              status: 'skipped',
-              diagnostics: [diagnostic('RESPONSE_STALE', '/files', '连接或工程已变化，未继续写入此文件。')],
-            });
-            continue;
-          }
-          let receipt: NetworkFileOutcome = failure();
-          try {
-            await hooks.files.writeArtifact(artifact, category, 'project', (outcome) => {
-              receipt = outcome;
-            });
-          } catch {
-            receipt = failure();
-          }
-          if (
-            receipt.status === 'ok' &&
-            receipt.operation === 'export' &&
-            receipt.sessionId === base.documentSessionId &&
-            receipt.snapshotId === artifact.snapshotId
-          ) {
-            items.push({
-              kind,
-              status: 'ok',
-              path: receipt.path,
-              requestId: receipt.requestId,
-              snapshotId: receipt.snapshotId,
-            });
-          } else {
-            items.push({
-              kind,
-              status: 'failed',
-              diagnostics:
-                receipt.status === 'error'
-                  ? receipt.diagnostics
-                  : [diagnostic('EXPORT_RECEIPT_MISSING', '/files', '未取得匹配的归档回执。')],
-            });
-          }
-        }
-      } finally {
-        owner.completeBatch(id, items);
-        accept.disabled = false;
-        reject.disabled = false;
-        if (displayed === id) dismiss();
-      }
+      await writeBatch(owner, id, result.value.base, batchArtifacts, []);
       return;
     }
     if (result.ok && result.value.action.kind === 'curve-import') {
@@ -352,11 +411,20 @@ export function createToolFileDialogs(hooks: Hooks) {
     readonly action: NetworkToolFileAction;
   }) {
     const owner = operations;
+    owner.invalidate(hooks.base());
+    const replay = owner.replay(params.base, params.operationKey, params.action);
+    if (replay) return replay;
+    if (params.action.kind === 'drawing' || params.action.kind === 'export-batch') await document.fonts.ready;
+    if (owner !== operations)
+      return { ok: false as const, diagnostics: [diagnostic('RESPONSE_STALE', '/files', '连接已变化。')] };
     const batch = params.action.kind === 'export-batch' ? params.action : null;
-    if (batch && !hooks.files.currentPath?.toLowerCase().endsWith('.hydproj'))
+    const archive = batch || ('destination' in params.action && params.action.destination === 'project');
+    if (archive && !hooks.files.currentPath?.toLowerCase().endsWith('.hydproj'))
       return {
         ok: false as const,
-        diagnostics: [diagnostic('FILE_TARGET_REQUIRED', '/files', '批量导出需要已绑定的文件夹工程。')],
+        diagnostics: [
+          diagnostic('FILE_TARGET_REQUIRED', '/files', '自动归档需要文件夹工程，请先保存工程或指定外部导出位置。'),
+        ],
       };
     const recovery =
       params.action.kind === 'project' && params.action.mode === 'restore' ? await hooks.recovery.summaries() : null;
@@ -458,7 +526,7 @@ export function createToolFileDialogs(hooks: Hooks) {
         '计算书 / ' + word.suggestedName + ' · 当前设计 · ' + params.action.calculationId,
         '同名自动编号。每份文件都有独立回执。',
       ].join('\n');
-      dialog.showModal();
+      void confirm();
     } else if (params.action.kind === 'curve-import') {
       heading.textContent = 'AI 请求导入冻结曲线文件';
       accept.textContent = '确认选择文件';
@@ -508,7 +576,8 @@ export function createToolFileDialogs(hooks: Hooks) {
         '\n目标：' +
         (params.action.destination === 'project' ? '工程归档目录（自动编号）' : '确认后在本机选择位置') +
         '\n只导出此冻结来源，不更新工程、不覆盖既有结果身份。';
-      dialog.showModal();
+      if (archive) void confirm();
+      else dialog.showModal();
     } else if (params.action.kind === 'save') {
       accept.textContent = '确认保存';
       heading.textContent = params.action.mode === 'as' ? 'AI 请求另存工程' : 'AI 请求保存工程';
@@ -526,6 +595,49 @@ export function createToolFileDialogs(hooks: Hooks) {
       dialog.showModal();
     } else if (params.action.kind !== 'curve') {
       const action = params.action;
+      if (archive) {
+        const prepared =
+          action.kind === 'drawing'
+            ? hooks.formalExport.prepareToolDrawing(action.format)
+            : action.kind === 'catalog' && catalog?.ok
+              ? hooks.formalExport.prepareToolCatalog(catalog.value, action.format)
+              : action.kind === 'book' && book?.ok
+                ? hooks.formalExport.prepareToolBook(book.value, action.format)
+                : null;
+        if (!prepared?.ok) {
+          owner.cancel(id);
+          displayed = '';
+          return (
+            prepared ?? {
+              ok: false as const,
+              diagnostics: [diagnostic('EXPORT_SOURCE_MISSING', '/files', '导出来源已失效。')],
+            }
+          );
+        }
+        const ready = owner.confirm(id, hooks.base());
+        if (!ready.ok) {
+          displayed = '';
+          return ready;
+        }
+        const artifact = 'drawing' in prepared.value ? prepared.value.drawing : prepared.value;
+        let observed = false;
+        void hooks.files
+          .writeArtifact(artifact, action.kind === 'drawing' ? 'drawings' : 'calculations', 'project', (receipt) => {
+            observed = true;
+            owner.complete(id, receipt);
+          })
+          .catch(() => {
+            if (!observed) {
+              observed = true;
+              owner.complete(id, failure());
+            }
+          })
+          .finally(() => {
+            if (!observed) owner.complete(id, failure());
+            if (displayed === id) displayed = '';
+          });
+        return owner.status(id);
+      }
       const observer = {
         starting: () => {
           if (
@@ -564,6 +676,7 @@ export function createToolFileDialogs(hooks: Hooks) {
   }
   return {
     prepare,
+    retryBatch,
     status(id: string) {
       this.render();
       return operations.status(id);
@@ -595,6 +708,7 @@ export function createToolFileDialogs(hooks: Hooks) {
     retire() {
       operations.invalidate(null);
       dismiss();
+      pendingBatch = undefined;
       operations = new NetworkToolFiles();
     },
   };

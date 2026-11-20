@@ -1,4 +1,9 @@
-import { networkDefinition, parameterDisplayName, unitDisplayName } from '@hyd/domain';
+import {
+  bindEngineeringFieldOption,
+  bindEngineeringInputs,
+  engineeringInputValue,
+} from './network-engineering-inputs.mjs';
+import { engineeringUnitChoices, networkDefinition, parameterDisplayName, unitDisplayName } from '@hyd/domain';
 import type { NetworkDraftSession } from '@hyd/application';
 import type { NetworkCanvas } from './network-canvas-controller.mjs';
 import { element, escapeHtml as esc } from './network-dom.mjs';
@@ -144,12 +149,18 @@ export function createNetworkShortcutParameters(hooks: Hooks) {
               : undefined
             : component.parameters[spec.group]?.[spec.key];
         const value = drafts.get(path) ?? String(saved ?? '');
-        return `<div class="c1-field"><label for="quick-${esc(spec.group)}-${esc(spec.key)}">${spec.group === 'initial' ? '初态 · ' : ''}${esc(parameterDisplayName(spec.key))}</label><div class="c1-field-meta"><small>${esc(unitDisplayName(spec.unit))}</small>${spec.group === 'initial' ? '' : parameterRuleField(component, spec.group, spec.key)}</div><input id="quick-${esc(spec.group)}-${esc(spec.key)}" aria-label="快捷${spec.group === 'initial' ? '初态 ' : ''}${esc(parameterDisplayName(spec.key))}" ${spec.group === 'initial' ? `data-initial="${esc(spec.key)}"` : `data-param="${esc(path)}"`} type="number" step="any" value="${esc(value)}" ${hooks.canvas.editable ? '' : 'disabled'}></div>`;
+        return `<div class="c1-field"><label data-engineering-label for="quick-${esc(spec.group)}-${esc(spec.key)}">${spec.group === 'initial' ? '初态 · ' : ''}${esc(parameterDisplayName(spec.key))}</label><div class="c1-field-meta"><small>${esc(unitDisplayName(spec.unit))}</small>${spec.group === 'initial' ? '' : parameterRuleField(component, spec.group, spec.key)}</div><input id="quick-${esc(spec.group)}-${esc(spec.key)}" aria-label="快捷${spec.group === 'initial' ? '初态 ' : ''}${esc(parameterDisplayName(spec.key))}" ${spec.group === 'initial' ? `data-initial="${esc(spec.key)}"` : `data-param="${esc(path)}"`} data-engineering-unit="${esc(spec.unit)}" type="number" step="any" value="${esc(value)}" ${hooks.canvas.editable ? '' : 'disabled'}></div>`;
       })
       .join(
         '',
       )}</div><div class="c1-parameter-actions"><span data-shortcut-message role="status"></span><button type="button" class="c1-apply" data-shortcut-apply ${hooks.canvas.editable && chosen.length ? '' : 'disabled'}>应用</button></div>`;
-    advanced.innerHTML = `<summary>高级：卡片显示字段 <small>已选 ${chosen.length} 项</small></summary><div class="shortcut-field-options">${specs.map((s) => `<label><input type="checkbox" data-shortcut-field="${esc(s.path)}" ${chosen.includes(s.path) ? 'checked' : ''}>${esc(parameterDisplayName(s.key))}<small>${esc(unitDisplayName(s.unit))}</small></label>`).join('')}</div>`;
+    advanced.innerHTML = `<summary>高级：卡片显示字段 <small>已选 ${chosen.length} 项</small></summary><div class="shortcut-field-options">${specs.map((s) => `<label><input type="checkbox" data-shortcut-field="${esc(s.path)}" ${chosen.includes(s.path) ? 'checked' : ''}><span data-engineering-label>${esc(parameterDisplayName(s.key))}</span><small>${esc(unitDisplayName(engineeringUnitChoices(s.unit, s.key)[0]?.label ?? s.unit))}</small></label>`).join('')}</div>`;
+    for (const input of advanced.querySelectorAll<HTMLInputElement>('[data-shortcut-field]')) {
+      const spec = specs.find((s) => s.path === input.dataset.shortcutField);
+      const label = input.closest('label');
+      if (label && spec) bindEngineeringFieldOption(label, spec.unit, spec.key, parameterDisplayName(spec.key));
+    }
+    bindEngineeringInputs(root);
     bindParameterRuleFields(root, (group, key, locked) => hooks.lock(component.id, group, key, locked));
     for (const lock of root.querySelectorAll('[data-rule-toggle]')) lock.classList.add('c1-lock');
     root.querySelector('[data-shortcut-apply]')?.addEventListener('click', () => {
@@ -169,7 +180,7 @@ export function createNetworkShortcutParameters(hooks: Hooks) {
     const input = event.target;
     if (input instanceof HTMLInputElement) {
       const path = input.dataset.param ?? (input.dataset.initial ? 'initial.' + input.dataset.initial : undefined);
-      if (path) drafts.set(path, input.value);
+      if (path) drafts.set(path, input.value === '' ? '' : String(engineeringInputValue(input)));
     }
   });
   advanced.addEventListener('change', (event) => {

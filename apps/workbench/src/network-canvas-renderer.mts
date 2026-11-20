@@ -18,6 +18,7 @@ import {
   type NetworkConnectionAnchor,
   type NetworkRouteAnchor,
 } from '@hyd/application';
+import { sharedDrawingTracks, visibleTrackPath, longestTrack } from './network-shared-tracks.mjs';
 import { networkSymbol } from './network-symbols.mjs';
 import { inlineInstrumentReading, inlineInstrumentY } from './network-instrument-symbols.mjs';
 import { pressureLegendFor, pressurePalette, type PressureBands } from './network-pressure.mjs';
@@ -63,49 +64,86 @@ export interface CanvasRenderView {
 }
 /** Presentation cache only. The caller supplies a read-only frame; no editing/session commands. */
 export function createCanvasRenderer() {
-  let routeDocument: NetworkProject | null = null;
-  const routeCache = new Map<string, ReturnType<typeof networkDrawingRoute>>();
   const junctionCache = new WeakMap<NetworkProject, ReturnType<typeof networkDrawingJunctions>>();
-  function drawingRoute(project: NetworkProject, id: string, override?: NetworkProject['layout']['routes'][number]) {
-    if (routeDocument !== project) {
-      routeDocument = project;
-      routeCache.clear();
-      for (const [key, value] of networkDrawingRoutes(project)) routeCache.set(key, value);
-    }
-    if (override) return networkDrawingRoute(project, id, override);
-    let value = routeCache.get(id);
-    if (!value) {
-      value = networkDrawingRoute(project, id);
-      routeCache.set(id, value);
-    }
+  type Frame = { routes: ReturnType<typeof networkDrawingRoutes>; shared: ReturnType<typeof sharedDrawingTracks> };
+  const frames = new WeakMap<NetworkProject, Frame>();
+  function frame(project: NetworkProject, base?: NetworkProject): Frame {
+    const known = frames.get(project);
+    if (known) return known;
+    let routes: ReturnType<typeof networkDrawingRoutes>;
+    if (
+      base &&
+      base !== project &&
+      project.layout.components === base.layout.components &&
+      project.layout.nodes === base.layout.nodes &&
+      project.layout.routes !== base.layout.routes
+    ) {
+      // A handle preview only replaces manual route records. Reuse the other visible
+      // paths until release instead of routing the whole circuit on every pointer event.
+      const preview = new Map(frame(base).routes);
+      for (const [i, route] of project.layout.routes.entries())
+        if (route !== base.layout.routes[i])
+          preview.set(route.connectionId, networkDrawingRoute(project, route.connectionId, route));
+      routes = preview;
+    } else routes = networkDrawingRoutes(project);
+    const value = { routes, shared: sharedDrawingTracks(project, routes) };
+    frames.set(project, value);
     return value;
   }
+  const tracks = (project: NetworkProject) => frame(project).shared;
+  function drawingRoute(project: NetworkProject, id: string, override?: NetworkProject['layout']['routes'][number]) {
+    return override
+      ? networkDrawingRoute(project, id, override)
+      : (frame(project).routes.get(id) ?? networkDrawingRoute(project, id));
+  }
   const svgBuffer = globalThis.document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  let renderedMarkup = '';
+  const rendered: { markup: string; count: number }[] = [];
+  let titledEdges: NodeListOf<SVGTitleElement> | undefined;
   // One latest symbol per immutable component; old engineering objects remain
   // collectable. Position transforms and live connection presentation stay separate.
   const symbols = new WeakMap<NetworkComponent, { key: string; value: string }>();
-  function updateSvg(target: Element, source: Element): void {
-    if (target.isEqualNode(source)) return;
-    if (target.childNodes.length !== source.childNodes.length) {
-      target.replaceChildren(...[...source.childNodes].map((node) => node.cloneNode(true)));
+  function syncNode(parent: Node, current: Node, next: Node): void {
+    if (current.isEqualNode(next)) return;
+    if (current.nodeName !== next.nodeName || current.nodeType !== next.nodeType) {
+      parent.replaceChild(next.cloneNode(true), current);
       return;
     }
-    for (const [index, next] of [...source.childNodes].entries()) {
-      const current = target.childNodes[index]!;
-      if (current.nodeName !== next.nodeName) {
-        current.replaceWith(next.cloneNode(true));
+    if (!(current instanceof Element) || !(next instanceof Element)) {
+      current.nodeValue = next.nodeValue;
+      return;
+    }
+    for (const attr of [...current.attributes]) if (!next.hasAttribute(attr.name)) current.removeAttribute(attr.name);
+    for (const attr of [...next.attributes])
+      if (current.getAttribute(attr.name) !== attr.value) current.setAttribute(attr.name, attr.value);
+    if (current.childNodes.length !== next.childNodes.length) {
+      current.replaceChildren(...[...next.childNodes].map((node) => node.cloneNode(true)));
+      return;
+    }
+    for (let i = 0; i < next.childNodes.length; i++) syncNode(current, current.childNodes[i]!, next.childNodes[i]!);
+  }
+  // Each section keeps its existing direct SVG children. A moving piston can
+  // update its symbol without reparsing the routing, instruments or edit handles.
+  function updateSections(board: SVGSVGElement, markup: string[]) {
+    let offset = 0;
+    for (const [i, text] of markup.entries()) {
+      const previous = rendered[i];
+      if (previous?.markup === text) {
+        offset += previous.count;
         continue;
       }
-      if (current instanceof Element && next instanceof Element) {
-        for (const attribute of [...current.attributes])
-          if (!next.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
-        for (const attribute of [...next.attributes])
-          if (current.getAttribute(attribute.name) !== attribute.value)
-            current.setAttribute(attribute.name, attribute.value);
-        updateSvg(current, next);
-      } else if (current.nodeValue !== next.nodeValue) current.nodeValue = next.nodeValue;
+      svgBuffer.innerHTML = text;
+      const nodes = [...svgBuffer.childNodes];
+      const oldCount = previous?.count ?? 0;
+      const shared = Math.min(oldCount, nodes.length);
+      for (let j = 0; j < shared; j++) syncNode(board, board.childNodes[offset + j]!, nodes[j]!);
+      for (let j = shared; j < oldCount; j++) board.removeChild(board.childNodes[offset + shared]!);
+      const following = board.childNodes[offset + shared] ?? null;
+      for (let j = shared; j < nodes.length; j++) board.insertBefore(nodes[j]!, following);
+      rendered[i] = { markup: text, count: nodes.length };
+      offset += nodes.length;
     }
+    rendered.length = markup.length;
+    while (board.childNodes.length > offset) board.lastChild?.remove();
   }
   function pathHandles(view: CanvasRenderView): string {
     const { drawing, viewport, selected, firstEndpoint, connectArmed, pathPreview } = view;
@@ -121,10 +159,11 @@ export function createCanvasRenderer() {
     const routed = drawingRoute(drawing, id, preview);
     const points = routed.ok ? routed.value : resolveRoute(a, b, route),
       radius = 5 / viewport.zoom;
-    return points
-      .slice(0, -1)
-      .map((p, i) => {
-        const next = points[i + 1]!;
+    const visible =
+      tracks(drawing).pieces.get(id) ??
+      points.slice(0, -1).map((from, index) => ({ from, to: points[index + 1]!, index }));
+    return visible
+      .map(({ from: p, to: next, index: i }) => {
         const vertical = p.x === next.x;
         const attributes = `data-path-id="${esc(id)}" data-part="segment" data-index="${i}"`;
         return (
@@ -164,10 +203,7 @@ export function createCanvasRenderer() {
       selections.some((s) => s.kind === kind && s.id === id) || (selected?.kind === kind && selected.id === id);
     const svg = boardElement();
     if (svg.dataset.portLabels !== view.labels.ports) svg.dataset.portLabels = view.labels.ports;
-    if (!drawing.design.connections.length) {
-      routeDocument = drawing;
-      routeCache.clear();
-    }
+    const shared = frame(drawing, document).shared;
 
     const positions = new Map(drawing.layout.components.map((p) => [p.componentId, p]));
     const componentsById = new Map(document.design.components.map((c) => [c.id, c]));
@@ -183,6 +219,7 @@ export function createCanvasRenderer() {
       if (end.kind === 'node' && dotNodes.has(end.nodeId)) return '';
       return `<circle class="endpoint" style="--pressure-color:${color}" data-endpoint='${esc(JSON.stringify(end))}' cx="${p.x}" cy="${p.y}" r="9"/>`;
     };
+    const titles = new Map<string, string>();
     const edges = document.design.connections
       .map((e) => {
         const a = endpoint(e.from),
@@ -199,7 +236,8 @@ export function createCanvasRenderer() {
                   ? pathPreview
                   : drawing.layout.routes.find((r) => r.connectionId === e.id),
               ),
-          d = routePath(route);
+          visible = shared.pieces.get(e.id),
+          d = visible ? visibleTrackPath(visible) : routePath(route);
         const active = networkEndpointActive(document, e.from) && networkEndpointActive(document, e.to);
         if (e.kind === 'signal' || !active) {
           const kind = e.kind === 'signal' ? 'signal' : 'hydraulic';
@@ -209,10 +247,17 @@ export function createCanvasRenderer() {
           const label = active
             ? 'OUT → U · ' + (volts == null ? '电压未知' : volts.toFixed(2) + ' V')
             : '当前控制模式停用此连线';
-          return `<path class="edge-hit" data-connection-hit="${esc(e.id)}" d="${d}"/><path class="edge${isSelected('connection', e.id) ? ' selected' : ''}" style="--pressure-color:${color};stroke-dasharray:${e.kind === 'signal' ? signalDash : '3 5'};${e.kind === 'signal' ? 'stroke-width:1.5;' : ''}" data-route-status="${avoided.ok ? 'ready' : 'blocked'}" data-connection-kind="${kind}" data-connection-active="${active}" data-signal-mode="${signal?.mode ?? ''}" data-signal-voltage="${volts ?? ''}" data-connection="${esc(e.id)}" d="${d}"><title>${label}</title></path>`;
+          titles.set(e.id, label);
+          return `<path class="edge-hit" data-connection-hit="${esc(e.id)}" d="${d}"/><path class="edge${isSelected('connection', e.id) ? ' selected' : ''}" style="--pressure-color:${color};stroke-dasharray:${e.kind === 'signal' ? signalDash : '3 5'};${e.kind === 'signal' ? 'stroke-width:1.5;' : ''}" data-route-status="${avoided.ok ? 'ready' : 'blocked'}" data-connection-kind="${kind}" data-connection-active="${active}" data-signal-mode="${signal?.mode ?? ''}" data-signal-voltage="${volts ?? ''}" data-connection="${esc(e.id)}" d="${d}"><title></title></path>`;
         }
         const value = connectionPresentation(document, point, e.id, bands)!;
-        return `<path class="edge-hit" data-connection-hit="${esc(e.id)}" d="${d}"/><path class="edge${isSelected('connection', e.id) ? ' selected' : ''}" style="--pressure-error:${pressurePalette(bands).error};--pressure-color:${avoided.ok ? value.color : '#c76613'};${avoided.ok ? '' : 'stroke-dasharray:8 5;'}" data-route-status="${avoided.ok ? 'ready' : 'blocked'}" data-pressure="${failed ? 'error' : value.uniform ? 'uniform' : 'endpoints-only'}" data-flow="${value.direction}" data-connection="${esc(e.id)}" d="${d}"><title>${esc(avoided.ok ? value.summary : '避障受阻，显示待修补路径：' + avoided.diagnostics.map((d) => d.message).join('；'))}</title></path><g data-flow-overlay="${esc(e.id)}" pointer-events="none">${flowArrow(route, value.direction, motionActive && avoided.ok ? 'animated' : 'static')}</g>${endpointMarker(e.from, a, value.fromColor)}${endpointMarker(e.to, b, value.toColor)}`;
+        titles.set(
+          e.id,
+          avoided.ok
+            ? value.summary
+            : '避障受阻，显示待修补路径：' + avoided.diagnostics.map((d) => d.message).join('；'),
+        );
+        return `<path class="edge-hit" data-connection-hit="${esc(e.id)}" d="${d}"/><path class="edge${isSelected('connection', e.id) ? ' selected' : ''}" style="--pressure-error:${pressurePalette(bands).error};--pressure-color:${avoided.ok ? value.color : '#c76613'};${avoided.ok ? '' : 'stroke-dasharray:8 5;'}" data-route-status="${avoided.ok ? 'ready' : 'blocked'}" data-pressure="${failed ? 'error' : value.uniform ? 'uniform' : 'endpoints-only'}" data-flow="${value.direction}" data-connection="${esc(e.id)}" d="${d}"><title></title></path><g data-flow-overlay="${esc(e.id)}" pointer-events="none">${flowArrow(visible ? longestTrack(visible) : route, value.direction, motionActive && avoided.ok ? 'animated' : 'static')}</g>${endpointMarker(e.from, a, value.fromColor)}${endpointMarker(e.to, b, value.toColor)}`;
       })
       .join('');
     const routingMessage = blockedRoutes.length
@@ -222,11 +267,18 @@ export function createCanvasRenderer() {
     const routingTitle = blockedRoutes.join('、');
     if ($('routingStatus').title !== routingTitle) $('routingStatus').title = routingTitle;
     let drawingJunctions = '';
-    if (drawing === document && !pathPreview) {
-      let junctions = junctionCache.get(document);
+    if (!pathPreview) {
+      let junctions = junctionCache.get(drawing);
       if (!junctions) {
-        junctions = networkDrawingJunctions(document);
-        junctionCache.set(document, junctions);
+        junctions = [
+          ...new Map(
+            [...networkDrawingJunctions(drawing), ...shared.junctions].map((j) => [
+              JSON.stringify([j.point.x, j.point.y]),
+              j,
+            ]),
+          ).values(),
+        ];
+        junctionCache.set(drawing, junctions);
       }
       drawingJunctions = junctions
         .map(({ point: p, connectionId }) => {
@@ -247,54 +299,52 @@ export function createCanvasRenderer() {
           : '';
       })
       .join('');
-    const components = document.design.components
-      .map((c) => {
-        const p = positions.get(c.id);
-        if (!p) return '';
-        const color = c.typeId === 'dynamic-controller' ? networkControllerSlot(drawing, c.id) : undefined;
-        const scale = networkDrawingScale(c, p),
-          labels =
-            view.labels.components === 'always' ||
-            (view.labels.components === 'selected' && isSelected('component', c.id));
-        const key = JSON.stringify([
-          point?.states.find((state) => state.componentId === c.id),
-          controls.find((control) => control.componentId === c.id),
-          color,
-          labels,
+    const components = document.design.components.map((c) => {
+      const p = positions.get(c.id);
+      if (!p) return '';
+      const color = c.typeId === 'dynamic-controller' ? networkControllerSlot(drawing, c.id) : undefined;
+      const scale = networkDrawingScale(c, p),
+        labels =
+          view.labels.components === 'always' ||
+          (view.labels.components === 'selected' && isSelected('component', c.id));
+      const key = JSON.stringify([
+        point?.states.find((state) => state.componentId === c.id),
+        controls.find((control) => control.componentId === c.id),
+        color,
+        labels,
+        p.rotation,
+        p.mirrored,
+        scale,
+      ]);
+      let cached = symbols.get(c);
+      if (cached?.key !== key) {
+        const value = networkSymbol(
+          color === undefined ? c : { ...c, controllerColor: color },
+          point?.states ?? [],
+          controls,
+          { labels, details: false },
           p.rotation,
-          p.mirrored,
           scale,
-        ]);
-        let cached = symbols.get(c);
-        if (cached?.key !== key) {
-          const value = networkSymbol(
-            color === undefined ? c : { ...c, controllerColor: color },
-            point?.states ?? [],
-            controls,
-            { labels, details: false },
-            p.rotation,
-            scale,
-            p.mirrored,
-          ).replace(
-            /<g data-port="([^"]+)">/g,
-            (_match, portId: string) =>
-              `<g data-endpoint='${esc(JSON.stringify({ kind: 'port', componentId: c.id, portId }))}'>`,
-          );
-          cached = { key, value };
-          symbols.set(c, cached);
-        }
-        const symbol = cached.value;
-        const interactiveSymbol = symbol.replace(
-          /<g data-position="(extend|neutral|retract)"/g,
-          (_match, position: string) =>
-            `<g role="button" tabindex="0" aria-label="${esc(c.label)} · ${esc(positionDisplayName(position, c))}" data-position="${position}"`,
+          p.mirrored,
+        ).replace(
+          /<g data-port="([^"]+)">/g,
+          (_match, portId: string) =>
+            `<g data-endpoint='${esc(JSON.stringify({ kind: 'port', componentId: c.id, portId }))}'>`,
         );
-        const frame = networkComponentPresentationBounds(c, { ...p, x: 0, y: 0 });
-        if (!frame) throw new Error('注册元件缺少绘图包络');
-        const meter = inlineInstrumentReading(c, point, inlineInstrumentY(c, frame, labels));
-        return `<g class="component${isSelected('component', c.id) ? ' selected' : ''}" data-component="${esc(c.id)}" aria-label="${esc(c.label)}" transform="translate(${p.x} ${p.y})">${interactiveSymbol}${meter}<rect class="selection-frame" x="${frame.left - 4}" y="${frame.top - 4}" width="${frame.right - frame.left + 8}" height="${frame.bottom - frame.top + 8}" fill="none" pointer-events="none"/></g>`;
-      })
-      .join('');
+        cached = { key, value };
+        symbols.set(c, cached);
+      }
+      const symbol = cached.value;
+      const interactiveSymbol = symbol.replace(
+        /<g data-position="(extend|neutral|retract)"/g,
+        (_match, position: string) =>
+          `<g role="button" tabindex="0" aria-label="${esc(c.label)} · ${esc(positionDisplayName(position, c))}" data-position="${position}"`,
+      );
+      const frame = networkComponentPresentationBounds(c, { ...p, x: 0, y: 0 });
+      if (!frame) throw new Error('注册元件缺少绘图包络');
+      const meter = inlineInstrumentReading(c, point, inlineInstrumentY(c, frame, labels));
+      return `<g class="component${isSelected('component', c.id) ? ' selected' : ''}" data-component="${esc(c.id)}" aria-label="${esc(c.label)}" transform="translate(${p.x} ${p.y})">${interactiveSymbol}${meter}<rect class="selection-frame" x="${frame.left - 4}" y="${frame.top - 4}" width="${frame.right - frame.left + 8}" height="${frame.bottom - frame.top + 8}" fill="none" pointer-events="none"/></g>`;
+    });
     const box = svg.viewBox.baseVal;
     const draftStart = pendingPipe && endpoint(pendingPipe.from),
       draftEnd = pendingPipe && endpoint(pendingPipe.to);
@@ -325,11 +375,22 @@ export function createCanvasRenderer() {
           `<g data-branch-connection="${esc(anchor.connectionId)}" data-branch-x="${anchor.point.x}" data-branch-y="${anchor.point.y}" transform="translate(${anchor.point.x} ${anchor.point.y})"><circle class="branch-connect-hit" r="${connectionRadius}"/><circle class="branch-connect-point" r="${4.5 / viewport.zoom}"/><title>从拐点接出分支；点击或拖到目标</title></g>`,
       )
       .join('');
-    const markup = `<rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" fill="transparent"/>${edges}${drawingJunctions}${draftLine}${nodes}${components}${overlay}<g data-edit-overlay>${pathHandles(view)}${branchHandles}${marquee}${linking}${problemMarker}</g>`;
-    if (markup !== renderedMarkup) {
-      svgBuffer.innerHTML = markup;
-      updateSvg(svg, svgBuffer);
-      renderedMarkup = markup;
+    const edgesChanged = rendered[1]?.markup !== edges;
+    updateSections(svg, [
+      `<rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" fill="transparent"/>`,
+      edges,
+      drawingJunctions,
+      draftLine,
+      nodes,
+      ...components,
+      overlay,
+      `<g data-edit-overlay>${pathHandles(view)}${branchHandles}${marquee}${linking}${problemMarker}</g>`,
+    ]);
+    if (edgesChanged || !titledEdges)
+      titledEdges = svg.querySelectorAll<SVGTitleElement>(':scope > path[data-connection] > title');
+    for (const title of titledEdges) {
+      const text = titles.get(title.parentElement?.getAttribute('data-connection') ?? '');
+      if (text !== undefined && title.textContent !== text) title.textContent = text;
     }
     setText($('selectionCount'), selections.length || selected ? `已选 ${selections.length || 1} 项` : '');
     for (const id of ['manualRoute', 'autoRoute', 'mergeRoute']) {
@@ -356,7 +417,9 @@ export function createCanvasRenderer() {
       selected?.kind === 'connection' && (readoutPinned || readoutConnection === selected.id)
         ? connectionPresentation(document, point, selected.id, bands)
         : null;
-    $('connectionReadout').hidden = !readoutPinned && !connection;
+    const readout = $('connectionReadout');
+    const hidden = !readoutPinned && !connection;
+    if (readout.hidden !== hidden) readout.hidden = hidden;
     $('connectionReadout').dataset.simulationSessionId = point?.identity.simulationSessionId ?? '';
     $('connectionReadout').dataset.tick = point ? String(point.identity.tick) : '';
     setText(
@@ -385,5 +448,5 @@ export function createCanvasRenderer() {
         : '',
     );
   }
-  return { render, route: drawingRoute };
+  return { render, route: drawingRoute, tracks };
 }

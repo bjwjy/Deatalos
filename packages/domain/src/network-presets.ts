@@ -1,3 +1,4 @@
+import { engineeringValueText } from './units.js';
 import type { NetworkComponent, NetworkProject } from './network-model.js';
 import type { Result } from './model.js';
 import { parseNetworkProject } from './network-project.js';
@@ -8,6 +9,7 @@ import {
   pumpReliefMaximumSettingPa,
   type NetworkDefinition,
 } from './network-registry.js';
+import { networkInitialFor } from './network-initial.js';
 import { directionalValveSpec } from './network-valve.js';
 import { isTeachingActuatorType } from './network-actuators.js';
 
@@ -29,7 +31,18 @@ export function networkCreationParameters(
   if (!original) throw new Error('Registered creation definition missing');
   if (!Number.isFinite(densityKgPerM3) || densityKgPerM3 <= 0) throw new Error('Validated fluid density required');
   if (definition.typeId === 'pump' && original.relief)
-    return immutable({ ...original, relief: { ...original.relief, enabled: 1 } });
+    return immutable({
+      ...original,
+      hydraulic: {
+        ...original.hydraulic,
+        displacementM3PerRev: 10e-6,
+        ...(definition.control === 'displacement' ? { maximumDisplacementM3PerRev: 16e-6 } : {}),
+      },
+      drive: { ...original.drive, angularSpeedRadPerS: (1450 * Math.PI) / 30 },
+      relief: { ...original.relief, enabled: 1, settingDifferentialPa: 16e6 },
+    });
+  if (definition.typeId === 'return-filter')
+    return immutable({ ...original, hydraulic: { ...original.hydraulic, filterRatedFlowM3PerS: 50 / 60000 } });
   // R is in bar/(L/min)^2. Matching the published fully-open quadratic
   // resistance is a preset conversion, not a copy of FluidSIM's valve law.
   const equivalentArea = (resistance: number) => Math.sqrt(densityKgPerM3 / (2 * resistance * 1e5 * 60000 ** 2)) / 0.67;
@@ -49,7 +62,7 @@ export function networkCreationParameters(
       ...original,
       hydraulic: {
         ...original.hydraulic,
-        openingDifferentialPa: 0.6e6,
+        openingDifferentialPa: 0.05e6,
         maximumAreaM2: equivalentArea(0.09),
         flowCoefficient: 0.67,
       },
@@ -84,18 +97,28 @@ export function networkCreationParameters(
       spool: { ...original.spool, diameterM: equivalentArea(0.164) / (Math.PI * (travel - overlap)) },
     });
   }
+  if (['single-acting-cylinder', 'cushioned-cylinder', 'cushioned-double-rod-cylinder'].includes(definition.typeId)) {
+    // A 40 mm bore and a 28 mm rod are a catalogued metric pair. A single-acting model only uses the bore.
+    const cap = (Math.PI * 0.04 ** 2) / 4;
+    const annulus = (Math.PI * (0.04 ** 2 - 0.028 ** 2)) / 4;
+    const geometry = { ...original.geometry };
+    if ('capAreaM2' in geometry) geometry.capAreaM2 = cap;
+    if ('rodSideAreaM2' in geometry) geometry.rodSideAreaM2 = annulus;
+    if ('equalAnnularAreaM2' in geometry) geometry.equalAnnularAreaM2 = annulus;
+    return immutable({ ...original, geometry });
+  }
   if (definition.id === 'teaching:cylinder') {
-    // FluidSIM 16/10 mm single-rod cylinder, stroke 200 mm. Coulomb/breakaway
+    // General-purpose 50/28 mm single-rod cylinder, stroke 200 mm. Coulomb/breakaway
     // forces and cushioning have no equivalent in this viscous-only model.
     return immutable({
       ...original,
       geometry: {
         ...original.geometry,
-        capAreaM2: (Math.PI * 0.016 ** 2) / 4,
-        rodSideAreaM2: (Math.PI * (0.016 ** 2 - 0.01 ** 2)) / 4,
+        capAreaM2: (Math.PI * 0.05 ** 2) / 4,
+        rodSideAreaM2: (Math.PI * (0.05 ** 2 - 0.028 ** 2)) / 4,
         strokeM: 0.2,
       },
-      mechanics: { ...original.mechanics, massKg: 0.3, pistonDampingNsPerM: 215 },
+      mechanics: { ...original.mechanics, massKg: 20, pistonDampingNsPerM: 215 },
     });
   }
   return original;
@@ -183,9 +206,10 @@ export function applyNetworkTeachingPreset(project: NetworkProject, componentId:
     };
   const initialConditions = project.design.initialConditions.map((initial) => {
     if (initial.componentId !== componentId || initial.kind !== 'throttle') return initial;
-    const opening = replacement.parameters.hydraulic?.maximumAreaM2;
-    if (opening === undefined) throw new Error('Registered throttle maximum area missing');
-    return { ...initial, openingAreaM2: opening };
+    const baseline = networkInitialFor(replacement);
+    if (!baseline.ok || baseline.value?.kind !== 'throttle')
+      throw new Error('Registered throttle initial state missing');
+    return baseline.value;
   });
   return parseNetworkProject({
     ...project,
@@ -275,6 +299,9 @@ export function networkModelAssumptions(component: NetworkComponent): readonly s
           : []),
       ]);
     return immutable([
+      ...(component.typeId === 'cushioned-double-rod-cylinder'
+        ? ['新建参考规格为缸径 40 mm、双侧杆径 28 mm。模型保存两侧共用的环形有效面积。']
+        : []),
       '靠近端点时，排油方向按位置增加等效孔口压降，充油方向无缓冲阻力。两端缓冲长度和最小开口独立可调，长度为零停用该端缓冲。',
       storage,
     ]);
@@ -348,7 +375,7 @@ export function networkModelAssumptions(component: NetworkComponent): readonly s
     ]);
   if (component.typeId === 'pump' && component.parameters.relief)
     return immutable([
-      `内置溢流${component.parameters.relief.enabled === 1 ? '启用' : '关闭'}：P→S，开启压差${component.parameters.relief.settingDifferentialPa} Pa、最大开口${component.parameters.relief.maximumAreaM2} m²。参数为可修改教学假设；S口需按实际回路接回油箱。`,
+      `内置溢流${component.parameters.relief.enabled === 1 ? '启用' : '关闭'}：P→S，开启压差${engineeringValueText(component.parameters.relief.settingDifferentialPa, 'Pa')}、最大开口${engineeringValueText(component.parameters.relief.maximumAreaM2, 'm²')}。参数为可修改教学假设；S口需按实际回路接回油箱。`,
       '采用实际P−S压力与有限孔口泄放，不钳制压力。容量不足、超出70 MPa或不支持的负压工况仍会保护；内置容积与流量来源可查。',
     ]);
   if (component.definition.id === 'teaching:pilot-relief')
@@ -365,12 +392,12 @@ export function networkModelAssumptions(component: NetworkComponent): readonly s
   const volume = component.parameters.storage?.portVolumeM3;
   const initial = component.parameters.storage?.initialPressurePa;
   const notes = [
-    `${component.label}：工作口内置油液容积 ${volume} m³/口，初压 ${initial} Pa；这是教学模型输入，不是实测容积，也不是随步长变化的数值柔度。`,
+    `${component.label}：工作口内置油液容积 ${engineeringValueText(volume, 'm³')}/口，初压 ${engineeringValueText(initial, 'Pa')}；这是教学模型输入，不是实测容积，也不是随步长变化的数值柔度。`,
   ];
   if (component.typeId === 'motor') {
     const makeup = component.parameters.makeup;
     notes.push(
-      `${component.label}：${makeup?.maximumAreaM2 === 0 ? '自动补油已关闭' : '自动补油已启用'}；内置独立储液源压力 ${makeup?.supplyPressurePa} Pa、开启压差 ${makeup?.openingDifferentialPa} Pa、开口 ${makeup?.maximumAreaM2} m²。此储液源不代表图上油箱，补油流量单独计量；不模拟气穴体积或两相气蚀。`,
+      `${component.label}：${makeup?.maximumAreaM2 === 0 ? '自动补油已关闭' : '自动补油已启用'}；内置独立储液源压力 ${engineeringValueText(makeup?.supplyPressurePa, 'Pa')}、开启压差 ${engineeringValueText(makeup?.openingDifferentialPa, 'Pa')}、开口 ${engineeringValueText(makeup?.maximumAreaM2, 'm²')}。此储液源不代表图上油箱，补油流量单独计量；不模拟气穴体积或两相气蚀。`,
     );
   }
   return immutable(notes);

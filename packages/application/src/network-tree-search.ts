@@ -146,6 +146,10 @@ export function shortestTreeAttachment(
     }
     return cost;
   };
+  // Arrival direction affects the bend penalty only. Visits to the same
+  // directed edge can reuse its obstacle and congestion result in this search.
+  const edgePenalties = new Float64Array(size * 4).fill(NaN);
+  const estimates = new Float64Array(size).fill(NaN);
   const costs = new Float64Array(size * 3).fill(Infinity),
     previous = new Int32Array(size * 3).fill(-1),
     touchesForeign = new Uint8Array(size),
@@ -199,25 +203,46 @@ export function shortestTreeAttachment(
     }
     const x = id % width,
       y = Math.floor(id / width);
-    for (const [next, d] of [
-      [x ? id - 1 : -1, 1],
-      [x + 1 < width ? id + 1 : -1, 1],
-      [y ? id - width : -1, 2],
-      [y + 1 < ys.length ? id + width : -1, 2],
-    ] as const) {
-      if (next < 0) continue;
+    for (let side = 0; side < 4; side++) {
+      let next: number;
+      switch (side) {
+        case 0:
+          if (x === 0) continue;
+          next = id - 1;
+          break;
+        case 1:
+          if (x + 1 === width) continue;
+          next = id + 1;
+          break;
+        case 2:
+          if (y === 0) continue;
+          next = id - width;
+          break;
+        default:
+          if (y + 1 === ys.length) continue;
+          next = id + width;
+      }
+      const d = side < 2 ? 1 : 2;
       const q = point(next);
       if (arrival && arrival !== d) {
         if (!touchesForeign[id]) touchesForeign[id] = foreign(p) ? 2 : 1;
         if (touchesForeign[id] === 2) continue;
       }
-      if (!clear(p, q, obstacles)) continue;
-      const cost = visit.cost + distance(p, q) + (arrival && arrival !== d ? bendCost : 0) + congestion(p, q);
+      const edge = id * 4 + side;
+      let penalty = required(edgePenalties[edge]);
+      if (Number.isNaN(penalty)) {
+        penalty = clear(p, q, obstacles) ? congestion(p, q) : Infinity;
+        edgePenalties[edge] = penalty;
+      }
+      if (penalty === Infinity) continue;
+      const cost = visit.cost + distance(p, q) + (arrival && arrival !== d ? bendCost : 0) + penalty;
       const state = next * 3 + d;
       if (cost >= required(costs[state])) continue;
       costs[state] = cost;
       previous[state] = visit.state;
-      push({ state, cost, f: cost + heuristic(q) });
+      let estimate = required(estimates[next]);
+      if (Number.isNaN(estimate)) estimates[next] = estimate = heuristic(q);
+      push({ state, cost, f: cost + estimate });
     }
   }
   return { ok: false, reason: 'No route to existing same-net geometry', expanded, size };

@@ -14,7 +14,7 @@ interface LayoutHooks {
   diagnostics(items: readonly DisplayDiagnostic[]): void;
   notify(message: string): void;
 }
-/** Explicit one-shot commands share the existing layout transaction; neither changes the viewport. */
+/** Both commands fit the completed drawing without adding a separate undo step. */
 export function createNetworkLayout(hooks: LayoutHooks) {
   const root = element('layoutTools');
   root.innerHTML =
@@ -147,11 +147,13 @@ export function createNetworkLayout(hooks: LayoutHooks) {
         return;
       }
       if (!result.value.plan.changedIds.length) {
+        hooks.canvas.fitAll(false);
         status(kind === 'arrangement' ? '当前元件布局无需整理。' : '当前自动连线无需整理；手动路径保持。');
         hooks.notify(kind === 'arrangement' ? '当前元件布局无需整理。' : '当前自动连线无需整理；手动路径保持。');
         return;
       }
       if (hooks.apply(result.value)) {
+        hooks.canvas.fitAll(false);
         status(name + '完成，不满意可以撤回。');
         hooks.notify(name + '完成，不满意可以撤回。');
       } else status(name + '未应用，请查看诊断；工程和视图保持。');

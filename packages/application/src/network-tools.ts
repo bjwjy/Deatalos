@@ -206,6 +206,9 @@ export class NetworkTools {
         'calculate',
         'curve_capture',
         'curve_history',
+        'cylinder_compare',
+        'export_batch_prepare',
+        'export_batch_retry',
         'curve_prepare',
         'curve_read',
         'apply',
@@ -278,6 +281,7 @@ export class NetworkTools {
           'Frozen accepted anchor; current live frames may advance. Controls/reset/reinitialization/another capture can retire backend record pages. Expired pages fail, never relabel.',
         currentAvailable: captured.source.runtime !== null,
         running: captured.source.runtime?.running ?? false,
+        ...(captured.source.runtime?.conditionRun ? { conditionRun: captured.source.runtime.conditionRun } : {}),
         ...(captured.source.diagnosticSnapshot
           ? {
               diagnosticStatus: {

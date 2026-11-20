@@ -13,11 +13,25 @@ contextBridge.exposeInMainWorld(
   }),
 );
 
+contextBridge.exposeInMainWorld(
+  'frameFiles',
+  Object.freeze({
+    open: () => ipcRenderer.invoke('frame-file:open'),
+    save: (template: unknown) => ipcRenderer.invoke('frame-file:save', template),
+  }),
+);
+
 // Narrow v3 service seam; no arbitrary channel, path, library or native command.
 contextBridge.exposeInMainWorld(
   'hydraulicKernel',
   Object.freeze({
     request: (request: unknown): Promise<unknown> => ipcRenderer.invoke('kernel:request', request),
+    onInitializationProgress: (callback: (sequence: number, percent: number, stage: string) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, sequence: number, percent: number, stage: string) =>
+        callback(sequence, percent, stage);
+      ipcRenderer.on('kernel:initialization-progress', listener);
+      return () => ipcRenderer.removeListener('kernel:initialization-progress', listener);
+    },
   }),
 );
 

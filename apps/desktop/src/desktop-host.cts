@@ -1,3 +1,4 @@
+import { openFrameFile, saveFrameFile } from './frame-files.cjs';
 import { NetworkProjectReceipts } from './network-project-receipts.cjs';
 import { rendererResources } from './renderer-resources.cjs';
 import { createNetworkClipboardAdapter } from './network-clipboard.cjs';
@@ -381,6 +382,23 @@ export function startDesktop(host: 'teaching' | 'advanced'): void {
         mainWindow.setTitleBarOverlay({ symbolColor });
         return true;
       });
+      for (const action of ['open', 'save'] as const) {
+        ipcMain.handle('frame-file:' + action, async (event, ...args: unknown[]) => {
+          const current = () => host === 'advanced' && !!mainWindow && !mainWindow.isDestroyed() && toolSender(event);
+          if (!mainWindow || !current() || args.length !== (action === 'save' ? 1 : 0) || dialogBusy)
+            return { error: '图框文件窗口暂不可用。' };
+          dialogBusy = true;
+          try {
+            return action === 'open'
+              ? await openFrameFile(mainWindow)
+              : await saveFrameFile(mainWindow, args[0], current);
+          } catch (error) {
+            return { error: error instanceof Error ? error.message : '图框文件读写失败。' };
+          } finally {
+            dialogBusy = false;
+          }
+        });
+      }
       let drawingModalMinimizable: boolean | undefined;
       const releaseDrawingModal = () => {
         if (drawingModalMinimizable === undefined) return;
@@ -521,7 +539,17 @@ export function startDesktop(host: 'teaching' | 'advanced'): void {
             ],
           };
         return (
-          kernel?.request(args[0]) ?? {
+          kernel?.request(args[0], (sequence, percent, stage) => {
+            const frame = event.senderFrame;
+            if (
+              !kernelNavigationPending &&
+              !event.sender.isDestroyed() &&
+              frame &&
+              frame === event.sender.mainFrame &&
+              frame.url === primaryUrl
+            )
+              frame.send('kernel:initialization-progress', sequence, percent, stage);
+          }) ?? {
             ok: false,
             diagnostics: [
               {

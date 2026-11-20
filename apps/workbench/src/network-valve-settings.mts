@@ -1,4 +1,9 @@
 import {
+  bindEngineeringInputs,
+  engineeringInputValue,
+  setEngineeringInputValue,
+} from './network-engineering-inputs.mjs';
+import {
   configureDirectionalValve,
   initialNetworkControls,
   networkComponentPresentationBounds,
@@ -80,7 +85,7 @@ export function createNetworkValveSettings(hooks: Hooks) {
     );
     for (const input of dialog.querySelectorAll<HTMLInputElement>('[data-valve-advanced]')) {
       const [group, key] = input.dataset.valveAdvanced?.split('.') ?? [];
-      if (group && key && parameters[group]) parameters[group][key] = input.value === '' ? NaN : Number(input.value);
+      if (group && key && parameters[group]) parameters[group][key] = engineeringInputValue(input);
     }
     const parameterRules = readParameterRuleFields(dialog, component);
     const parsed = parseNetworkProject({
@@ -121,7 +126,7 @@ export function createNetworkValveSettings(hooks: Hooks) {
             label: get('valveSettingsName').value,
             initialPosition: get('valveSettingsInitial').value,
             functions,
-            maximumAreaM2: Number(get('valveSettingsArea').value || NaN),
+            maximumAreaM2: engineeringInputValue(dialog.querySelector<HTMLInputElement>('#valveSettingsArea')),
             flowCoefficient: Number(get('valveSettingsCoefficient').value || NaN),
             autoName,
             valveActuation: {
@@ -217,7 +222,7 @@ export function createNetworkValveSettings(hooks: Hooks) {
     revision = editor.revision;
     componentId = id;
     const parameterHeading = (group: string, key: string, title: string, unit: string) =>
-      `<span class="valve-parameter-heading"><span>${esc(title)}</span><small>${esc(unit)}</small>${parameterRuleField(component, group, key)}</span>`;
+      `<span class="valve-parameter-heading"><span data-engineering-label>${esc(title)}</span><small>${esc(unit)}</small>${parameterRuleField(component, group, key)}</span>`;
     const advanced = Object.entries(definition.groups)
       .filter(([group]) => group !== 'positions')
       .flatMap(([group, specs]) =>
@@ -225,7 +230,7 @@ export function createNetworkValveSettings(hooks: Hooks) {
           .filter((spec) => !(group === 'hydraulic' && ['maximumAreaM2', 'flowCoefficient'].includes(spec.key)))
           .map(
             (spec) =>
-              `<label>${parameterHeading(group, spec.key, parameterDisplayName(spec.key), spec.unit)}<input type="number" step="any" data-valve-advanced="${group}.${spec.key}" value="${component.parameters[group]?.[spec.key] ?? ''}"></label>`,
+              `<label>${parameterHeading(group, spec.key, parameterDisplayName(spec.key), spec.unit)}<input type="number" step="any" data-engineering-unit="${spec.unit}" data-valve-advanced="${group}.${spec.key}" value="${component.parameters[group]?.[spec.key] ?? ''}"></label>`,
           ),
       )
       .join('');
@@ -237,10 +242,12 @@ export function createNetworkValveSettings(hooks: Hooks) {
       const input = dialog.querySelector(selector),
         label = input?.closest('label');
       if (label && input) {
+        if (input instanceof HTMLInputElement) input.dataset.engineeringUnit = unit;
         label.replaceChildren(input);
         input.insertAdjacentHTML('beforebegin', parameterHeading('hydraulic', key, title, unit));
       }
     }
+    bindEngineeringInputs(dialog);
     bindParameterRuleFields(dialog, (group, key, locked) => {
       if (!owner || !current()) return false;
       if (stagedProject) {
@@ -336,7 +343,8 @@ export function createNetworkValveSettings(hooks: Hooks) {
         initial = source?.design.initialConditions.find((v) => v.componentId === componentId);
       if (component && initial?.kind === 'valve') {
         const settings = directionalValveSettings(component, initial.positionId);
-        if (settings) get('valveSettingsArea').value = String(settings.maximumAreaM2);
+        const area = dialog.querySelector<HTMLInputElement>('#valveSettingsArea');
+        if (settings && area) setEngineeringInputValue(area, settings.maximumAreaM2);
       }
     }
     if (target.id !== 'valvePositionCount' && target.id !== 'valvePortCount') preview();

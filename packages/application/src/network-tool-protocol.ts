@@ -1,3 +1,4 @@
+import { readCylinderCondition, type CylinderCondition } from './network-cylinder-query.js';
 import { parseCurveRequest, type CurveRequest } from './network-curve-plan.js';
 import {
   networkToolSettingSchema,
@@ -412,6 +413,7 @@ const simulationActions = ['run', 'pause', 'step', 'reset', 'sequence-stop'] as 
 export type NetworkToolSimulationAction =
   | { readonly kind: (typeof simulationActions)[number] }
   | { readonly kind: 'run-for'; readonly ticks: number }
+  | { readonly kind: 'run-until'; readonly ticks: number; readonly condition: CylinderCondition }
   | Extract<NetworkControl, { kind: 'position' | 'opening-area' }>
   | (Extract<NetworkControl, { kind: 'displacement' }> & { readonly source: 'manual' })
   | Extract<NetworkOnlineControl, { kind: 'target-flow' }>;
@@ -489,6 +491,17 @@ export const networkToolRequestSchema = {
       schemaEnvelope(method, schemaObject({ operationId: schemaId })),
     ),
     schemaEnvelope('curve_history', schemaObject({})),
+    schemaEnvelope(
+      'cylinder_compare',
+      schemaObject(
+        {
+          cylinderIds: { type: 'array', items: schemaId, minItems: 2, maxItems: 2, uniqueItems: true },
+          fromTick: schemaInteger(0, Number.MAX_SAFE_INTEGER),
+        },
+        ['cylinderIds', 'fromTick'],
+      ),
+    ),
+    schemaEnvelope('export_batch_retry', schemaObject({ operationId: schemaId, retryKey: schemaId })),
     schemaEnvelope('curve_capture', schemaObject({ base: schemaBase, historyId: schemaId }, ['historyId'])),
     schemaEnvelope('curve_prepare', {
       oneOf: [
@@ -592,6 +605,15 @@ export const networkToolRequestSchema = {
         action: {
           oneOf: [
             schemaObject({ kind: { enum: simulationActions } }),
+            schemaObject({
+              kind: schemaLiteral('run-until'),
+              ticks: schemaInteger(1, 10000),
+              condition: schemaObject({
+                componentId: schemaId,
+                comparison: { enum: ['gte', 'lte'] },
+                positionM: schemaNumber(0, 100),
+              }),
+            }),
             schemaObject({ kind: schemaLiteral('run-for'), ticks: schemaInteger(1, 10000) }),
             schemaObject({
               kind: schemaLiteral('position'),
@@ -668,6 +690,14 @@ export type NetworkToolRequest = {
       };
     }
   | { readonly method: 'settings_status' | 'settings_cancel'; readonly params: { readonly operationId: string } }
+  | {
+      readonly method: 'cylinder_compare';
+      readonly params: { readonly cylinderIds?: readonly string[]; readonly fromTick?: number };
+    }
+  | {
+      readonly method: 'export_batch_retry';
+      readonly params: { readonly operationId: string; readonly retryKey: string };
+    }
   | { readonly method: 'curve_history'; readonly params: Record<string, never> }
   | { readonly method: 'recovery_list'; readonly params: Record<string, never> }
   | {
@@ -835,6 +865,35 @@ export function parseNetworkToolRequest(input: unknown): Result<NetworkToolReque
           zoom: r.number(a.zoom, '/params/action/zoom', 0.0001, 8),
         },
       },
+    });
+  }
+  if (o.method === 'export_batch_retry') {
+    const p = r.object(o.params, '/params', ['operationId', 'retryKey']);
+    return r.finish({
+      ...header,
+      method: o.method,
+      params: {
+        operationId: r.id(p.operationId, '/params/operationId'),
+        retryKey: r.id(p.retryKey, '/params/retryKey'),
+      },
+    });
+  }
+  if (o.method === 'cylinder_compare') {
+    const p = r.object(o.params, '/params', ['cylinderIds', 'fromTick']);
+    const ids =
+      p.cylinderIds === undefined
+        ? undefined
+        : r.array(p.cylinderIds, '/params/cylinderIds', 2).map((x) => r.id(x, '/params/cylinderIds'));
+    if (ids && (ids.length !== 2 || ids[0] === ids[1]))
+      r.fail('CYLINDER_SELECTION_REQUIRED', '/params/cylinderIds', '请选择两个不同的液压缸。');
+    const fromTick =
+      p.fromTick === undefined ? undefined : r.number(p.fromTick, '/params/fromTick', 0, Number.MAX_SAFE_INTEGER);
+    if (fromTick !== undefined && !Number.isSafeInteger(fromTick))
+      r.fail('RANGE_INVALID', '/params/fromTick', '步号须为整数。');
+    return r.finish({
+      ...header,
+      method: o.method,
+      params: { ...(ids ? { cylinderIds: ids } : {}), ...(fromTick !== undefined ? { fromTick } : {}) },
     });
   }
   if (o.method === 'curve_capture') {
@@ -1017,17 +1076,21 @@ export function parseNetworkToolRequest(input: unknown): Result<NetworkToolReque
       'positionId',
       'areaM2',
       'targetM3PerS',
+      'condition',
       'ticks',
       'source',
       'value',
     ]);
     const kind = simulationActions.find((value) => value === a.kind);
     let action: NetworkToolSimulationAction;
-    if (a.kind === 'run-for') {
-      r.object(p.action, field, ['kind', 'ticks']);
+    if (a.kind === 'run-for' || a.kind === 'run-until') {
+      r.object(p.action, field, a.kind === 'run-until' ? ['kind', 'ticks', 'condition'] : ['kind', 'ticks']);
       const ticks = r.number(a.ticks, field + '/ticks', 1, 10000);
       if (!Number.isSafeInteger(ticks)) r.fail('CLOCK_INVALID', field + '/ticks', '有限运行步数必须为整数。');
-      action = { kind: 'run-for', ticks };
+      action =
+        a.kind === 'run-until'
+          ? { kind: a.kind, ticks, condition: readCylinderCondition(r, a.condition, field + '/condition') }
+          : { kind: 'run-for', ticks };
     } else if (kind) {
       r.object(p.action, field, ['kind']);
       action = { kind };

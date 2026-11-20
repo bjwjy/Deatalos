@@ -141,6 +141,8 @@ export function parseNetworkRecordPage(
     selection: selection.simulationSessionId === null ? 'current' : 'history',
   });
 }
+// Only reuse arrays built from validated pages of the append-only native record.
+const liveWindows = new WeakMap<readonly NetworkSnapshot[], NetworkRecordPage>();
 /** Pin a runtime record window (or pause first), then capture. Changes between pages are failures.
  * Only page-size resource overflow can retry the same anchor with a smaller bounded page.
  * External callers must also compare sourceIdentity before presenting a late capture. */
@@ -149,6 +151,7 @@ export async function captureNetworkExport(
   expected: NetworkIdentity,
   simulationSessionId: string | null,
   context: { readonly snapshotId: string; readonly capturedAt: string; readonly appVersion: string },
+  previousSamples?: readonly NetworkSnapshot[],
 ): Promise<Result<NetworkExportCapture>> {
   if (
     !/^[\w-]{1,80}$/.test(context.snapshotId) ||
@@ -157,13 +160,17 @@ export async function captureNetworkExport(
     context.appVersion.length > 80
   )
     return fail('EXPORT_CONTEXT_INVALID', '快照身份/时间/应用版本无效。');
+  const prior = previousSamples && liveWindows.get(previousSamples);
+  // Live reads share the animation thread. Keep each validation turn short.
+  const pageLimit = previousSamples ? 5 : 20;
   let offset = 0,
-    limit = 20,
+    limit = prior ? 1 : pageLimit,
     first: NetworkRecordPage | undefined;
   let firstDocument = '',
     firstPoint = '',
     firstRecord = '';
   const samples: NetworkSnapshot[] = [];
+  let overlapTail: NetworkSnapshot | undefined;
   do {
     const selection = { simulationSessionId, offset, limit };
     let reply: Result<unknown>;
@@ -194,6 +201,38 @@ export async function captureNetworkExport(
       firstDocument = JSON.stringify(first.document);
       firstPoint = JSON.stringify(first.point);
       firstRecord = JSON.stringify(first.record);
+      if (prior) limit = pageLimit;
+      if (
+        prior &&
+        previousSamples &&
+        first.selection === 'current' &&
+        first.sourceIdentity.simulationSessionId === prior.sourceIdentity.simulationSessionId &&
+        first.sourceIdentity.documentSessionId === prior.sourceIdentity.documentSessionId &&
+        first.sourceIdentity.physicsRevision === prior.sourceIdentity.physicsRevision &&
+        first.sourceIdentity.requestSequence >= prior.sourceIdentity.requestSequence &&
+        first.record.capacity === prior.record.capacity &&
+        firstDocument === JSON.stringify(prior.document)
+      ) {
+        const dropped = first.record.samplesDropped - prior.record.samplesDropped;
+        const overlap = previousSamples.length - dropped;
+        // The ring only appends accepted steps and evicts from its front. Check the
+        // freshly read head and re-read the old tail before accepting new points.
+        if (
+          dropped >= 0 &&
+          overlap > first.samples.length &&
+          overlap <= first.record.count &&
+          first.samples.every((point, i) => JSON.stringify(point) === JSON.stringify(previousSamples[dropped + i]))
+        ) {
+          samples.push(...previousSamples.slice(dropped, -1));
+          overlapTail = previousSamples.at(-1);
+          offset = overlap - 1;
+          continue;
+        }
+      }
+    } else if (overlapTail) {
+      if (JSON.stringify(overlapTail) !== JSON.stringify(page.value.samples[0]))
+        return fail('RESPONSE_STALE', '已缓存记录与当前窗口交界样本不一致。');
+      overlapTail = undefined;
     }
     for (const s of page.value.samples) {
       const previous = samples.at(-1);
@@ -211,16 +250,21 @@ export async function captureNetworkExport(
   if (!first) return fail('EXPORT_RESULT_UNAVAILABLE', '记录不可用。');
   const view = networkResultView(first.document, first.point, first.point.identity);
   if (!view.ok) return view;
+  // Pages and result views are already deeply frozen. Freeze only the new container.
+  const retained = Object.freeze(samples);
+  if (previousSamples && first.selection === 'current') liveWindows.set(retained, first);
   return {
     ok: true,
-    value: immutable({
+    value: Object.freeze({
       format: 'HydraulicNetworkExport',
       version: 1,
-      ...context,
-      sourceIdentity: expected,
+      snapshotId: context.snapshotId,
+      capturedAt: context.capturedAt,
+      appVersion: context.appVersion,
+      sourceIdentity: first.sourceIdentity,
       selection: first.selection,
       view: view.value,
-      samples,
+      samples: retained,
       record: first.record,
     }),
   };

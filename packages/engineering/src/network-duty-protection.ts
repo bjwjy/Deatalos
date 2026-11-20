@@ -1,4 +1,5 @@
-import { diagnostic, type NetworkComponent, type Result } from '@hyd/domain';
+import { directionalReturnLine } from './network-duty-return-pipes.js';
+import { diagnostic, type NetworkComponent, type NetworkProject, type Result } from '@hyd/domain';
 import type { DutyPhasePaths } from './network-duty-accessories.js';
 import { orificeResistance } from './network-duty-flow-split.js';
 import type { CalculationInput } from './network-learning.js';
@@ -6,7 +7,7 @@ import type { CalculationInput } from './network-learning.js';
 export const dutyProtectionTypes: ReadonlySet<string> = new Set(['counterbalance', 'shock-makeup-valve']);
 
 export const protectionDutyConditions = [
-  '限单定量泵、单油箱、一只普通四通换向阀、一只普通双作用缸和一只本批阀，通路唯一且按理想连线。缸容积效率取 1，回油基准取油箱压力，其余供油压降填 0。换向阀的供回油孔口压降按实际通过的流量计算。',
+  '限单定量泵、单油箱、一只普通四通换向阀、一只普通双作用缸和一只本批阀，通路唯一。平衡阀回路的换向阀 T 口可经一段有损管回箱，其余按理想连线。缸容积效率取 1，回油基准取油箱压力，其余供油压降填 0。换向阀的供回油孔口压降按实际通过的流量计算。',
   '平衡阀 B 串接缸有杆腔、A 接换向阀 B、X 从无杆腔取压。伸出校核 B→A 的负载与先导联合开启，缩回校核 A→B 的自由单向通路。只核算阻性负载。',
   '冲击溢流补油阀组跨接两个工作口，T 接同一油箱。按 A、B 各自相对 T 的压差计算工作口→T 溢流和 T→工作口补油，并将这些流量计入目标工况的油量平衡。',
   '结果为指定缸速的稳态工作点及泵需求。超越负载制动、压力冲击、空化和主泵溢流同时调节留待专项核算。',
@@ -61,6 +62,7 @@ const clamp = (value: number) => Math.min(1, Math.max(0, value));
 const mp = (pa: number) => Number((pa / 1e6).toPrecision(6)) + ' MPa';
 
 export function estimateDutyProtection(
+  project: NetworkProject,
   paths: DutyPhasePaths,
   input: ProtectionInput,
   add: StepWriter,
@@ -83,7 +85,7 @@ export function estimateDutyProtection(
   if (
     !['teaching:directional-2-4', 'teaching:directional-3-4'].includes(valve.definition.id) ||
     !ideal(pumpPort, work('P')) ||
-    !ideal(tankPort, work('T')) ||
+    (!counter && !ideal(tankPort, work('T'))) ||
     !ideal(work('A'), cap) ||
     !ideal(work('B'), workB) ||
     groups.some((from, i) => groups.slice(i + 1).some((to) => paths.idealReachable(from, to))) ||
@@ -152,7 +154,17 @@ export function estimateDutyProtection(
     } = h;
     if (!setting || !band || !ratio || crack === undefined)
       return fail('缺少平衡阀设定、调节带、先导比或单向开启压差。');
-    const baseReturn = tankPa + kd * outletFlow ** 2;
+    const line = directionalReturnLine(project, paths, work('T'), tankPort, outletFlow, tankPa);
+    if (!line.ok) return line;
+    if (line.value) {
+      const pipe = line.value;
+      const id = '换向阀 T 口回油管 [' + pipe.connectionId + '] ';
+      write('line-flow', id + '目标排油量', outletFlow, 'm³/s');
+      write('line-friction', id + pipe.regime + '沿程压降', pipe.frictionDropPa, 'Pa');
+      write('line-local', id + '局部压降', pipe.localDropPa, 'Pa');
+      write('line-pressure', id + 'T 口背压', pipe.upstreamPressurePa, 'Pa');
+    }
+    const baseReturn = (line.value?.upstreamPressurePa ?? tankPa) + kd * outletFlow ** 2;
     const supplyDrop = kd * inletFlow ** 2;
     if (!forward) {
       const pB = drivePa + areaRatio * baseReturn;

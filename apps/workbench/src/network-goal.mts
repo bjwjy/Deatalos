@@ -1,3 +1,4 @@
+import { bindEngineeringInputs, engineeringInputValue } from './network-engineering-inputs.mjs';
 import {
   previewIndependentNetworkGoal,
   previewCombinedNetworkGoal,
@@ -17,7 +18,7 @@ import {
   type NetworkDutyRequest,
   type NetworkGoalSelection,
 } from '@hyd/engineering';
-import { fromSI, toSI, parameterDisplayName, isLinearActuatorType } from '@hyd/domain';
+import { engineeringValueText, fromSI, toSI, parameterDisplayName, isLinearActuatorType } from '@hyd/domain';
 import { escapeHtml as esc } from './network-dom.mjs';
 interface GoalHooks {
   editor(): NetworkDraftSession;
@@ -314,8 +315,8 @@ export function createNetworkGoal(root: HTMLElement, hooks: GoalHooks) {
   function calculate(mode: 'check' | 'solve'): void {
     invalidate();
     const number = (row: Element, selector: string) => {
-      const value = row.querySelector<HTMLInputElement>(selector)?.value.trim();
-      return value ? Number(value) : null;
+      const input = row.querySelector<HTMLInputElement>(selector);
+      return input?.value.trim() ? engineeringInputValue(input) : null;
     };
     const combined = hooks.readCombined();
     if (combined !== null) {
@@ -481,14 +482,14 @@ export function createNetworkGoal(root: HTMLElement, hooks: GoalHooks) {
     const plan = result.value.plan;
     const comparisons = [plan.current, ...plan.alternatives.map((item) => item.analysis)];
     node('[data-goal-result]').innerHTML =
-      `<div class="goal-comparison"><table class="metric-table"><thead><tr><th>方案</th><th>涉及元件</th><th>试算预算 / MPa</th><th>峰值需求 / MPa</th><th>最大需求 / L/min</th><th>估计供给 / L/min</th><th>峰值轴功率 / W</th><th></th></tr></thead><tbody>${comparisons
+      `<div class="goal-comparison"><table class="metric-table"><thead><tr><th>方案</th><th>涉及元件</th><th>试算预算 / MPa</th><th>峰值需求 / MPa</th><th>最大需求 / L/min</th><th>估计供给 / L/min</th><th>峰值轴功率 / kW</th><th></th></tr></thead><tbody>${comparisons
         .map((item, i) => {
           const driven = item.phases.filter(isDutySupplyDemand);
           const peak = (value: (phase: (typeof driven)[number]) => number, format: (number: number) => string) =>
             driven.length ? format(Math.max(...driven.map(value))) : '—';
           return `<tr><td>${comparisonChoice(i)}</td><td>${componentSummary(item)}</td><td>${pressure(item.request.pressureLimitPa)}</td><td>${peak((p) => p.pressurePa, pressure)}</td><td>${peak((p) => p.flowM3PerS, flow)}</td><td>${flow(item.availableFlowM3PerS)}</td><td>${peak(
             (p) => p.shaftPowerW,
-            (p) => p.toPrecision(5),
+            (p) => (p / 1000).toPrecision(5),
           )}</td><td><button type="button" data-goal-detail="${i - 1}">查看详情</button></td></tr>`;
         })
         .join(
@@ -667,9 +668,10 @@ export function createNetworkGoal(root: HTMLElement, hooks: GoalHooks) {
           )
           .map(
             (v) =>
-              `<div data-goal-variable data-component="${esc(v.componentId)}" data-group="${esc(v.group)}" data-key="${esc(v.key)}"><label class="goal-variable-name"><input type="checkbox" data-goal-selected ${v.locked ? 'disabled' : v.key === 'angularSpeedRadPerS' ? '' : 'checked'}>${esc(v.label)} / ${esc(parameterDisplayName(v.key))} ${v.locked ? '🔒 已锁定' : '🔓 未锁定'}</label><label class="goal-variable-min">下限 / ${esc(v.unit)}<input data-goal-min type="number" step="any" value="${v.key === 'angularSpeedRadPerS' ? v.current : v.minimum}" ${v.locked ? 'disabled' : ''}></label><label class="goal-variable-max">上限 / ${esc(v.unit)}<input data-goal-max type="number" step="any" value="${v.key === 'angularSpeedRadPerS' ? v.current : v.maximum}" ${v.locked ? 'disabled' : ''}></label><small>当前 ${v.current} ${esc(v.unit)}</small></div>`,
+              `<div data-goal-variable data-component="${esc(v.componentId)}" data-group="${esc(v.group)}" data-key="${esc(v.key)}"><label class="goal-variable-name"><input type="checkbox" data-goal-selected ${v.locked ? 'disabled' : v.key === 'angularSpeedRadPerS' ? '' : 'checked'}>${esc(v.label)} / ${esc(parameterDisplayName(v.key))} ${v.locked ? '🔒 已锁定' : '🔓 未锁定'}</label><label class="goal-variable-min">下限 <small>${esc(v.unit)}</small><input data-engineering-unit="${esc(v.unit)}" data-goal-min type="number" step="any" value="${v.key === 'angularSpeedRadPerS' ? v.current : v.minimum}" ${v.locked ? 'disabled' : ''}></label><label class="goal-variable-max">上限 <small>${esc(v.unit)}</small><input data-engineering-unit="${esc(v.unit)}" data-goal-max type="number" step="any" value="${v.key === 'angularSpeedRadPerS' ? v.current : v.maximum}" ${v.locked ? 'disabled' : ''}></label><small>当前 ${esc(engineeringValueText(v.current, v.unit, v.key))}</small></div>`,
           )
           .join('') || '<p>当前没有本求解支持的变量；可校核支持的工况。</p>';
+      bindEngineeringInputs(node('[data-goal-variables]'));
     },
   };
 }

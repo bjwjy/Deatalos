@@ -12,6 +12,7 @@ import {
   type Result,
 } from '@hyd/domain';
 import { fixedPumpClosureGuard } from '@hyd/engine';
+import { cylinderReading, type CylinderCondition, type CylinderStop } from './network-cylinder-query.js';
 import { FixedClock, simulationConfig } from './simulation.js';
 import {
   acceptKernelResponse,
@@ -93,6 +94,66 @@ export class NetworkSimulation {
   get running(): boolean {
     return this.#running;
   }
+  #conditionRun: CylinderStop | undefined;
+  configureCondition(condition: CylinderCondition | undefined, ticks?: number): Result<boolean> {
+    if (!condition) {
+      this.#conditionRun = undefined;
+      return { ok: true, value: false };
+    }
+    const point = this.#point,
+      reading = point && cylinderReading(point, condition.componentId);
+    if (
+      !point ||
+      !reading ||
+      ticks === undefined ||
+      !Number.isSafeInteger(ticks) ||
+      ticks < 1 ||
+      ticks > 10000 ||
+      !Number.isSafeInteger(point.identity.tick + ticks)
+    )
+      return fail('CONDITION_INVALID', '停止条件需要当前有效的液压缸位置和最大步数。');
+    this.#conditionRun = {
+      condition,
+      startTick: point.identity.tick,
+      targetTick: point.identity.tick + ticks,
+      tick: point.identity.tick,
+      positionM: reading.positionM,
+      reason: 'running',
+    };
+    if (point.identity.tick > 0 && this.#samples.at(-1)?.identity.requestSequence !== point.identity.requestSequence)
+      this.#recordSample(point);
+    this.#checkCondition(point);
+    return { ok: true, value: this.#conditionRun.reason === 'threshold' };
+  }
+  #recordSample(point: NetworkSnapshot) {
+    this.#samples.push(point);
+    if (this.#samples.length > this.#recordCapacity) {
+      this.#samples.shift();
+      this.#samplesDropped++;
+    }
+  }
+  #checkCondition(point: NetworkSnapshot) {
+    const run = this.#conditionRun;
+    if (run?.reason !== 'running') return;
+    const state = cylinderReading(point, run.condition.componentId);
+    if (!state) {
+      this.pause();
+      return;
+    }
+    const threshold =
+      run.condition.comparison === 'gte'
+        ? state.positionM >= run.condition.positionM
+        : state.positionM <= run.condition.positionM;
+    const reason = threshold
+      ? 'threshold'
+      : point.identity.tick >= run.targetTick
+        ? 'tick-limit'
+        : !this.running && point.identity.tick > run.startTick
+          ? 'interrupted'
+          : 'running';
+    this.#conditionRun = { ...run, tick: point.identity.tick, positionM: state.positionM, reason };
+    if (reason !== 'running') this.pause();
+  }
   /** The immutable accepted cursor, without constructing status, controller or flow-regulator views. */
   get identity(): NetworkIdentity | null {
     return this.#cursor?.identity ?? null;
@@ -161,6 +222,7 @@ export class NetworkSimulation {
       running: this.#running,
       busy: this.#busy,
       identity: this.#cursor?.identity ?? null,
+      ...(this.#conditionRun ? { conditionRun: this.#conditionRun } : {}),
       point: this.#point,
       lastSuccessfulHistorical: this.#status === 'failed' ? this.#last : null,
       samples: Object.freeze(includeRecords ? [...this.#samples] : []),
@@ -308,6 +370,16 @@ export class NetworkSimulation {
   }
   /** Stops future dispatch immediately. An already dispatched native step drains before pause acknowledgement. */
   pause(): void {
+    const run = this.#conditionRun;
+    if (run?.reason === 'running') {
+      const point = this.#point,
+        reading = point && cylinderReading(point, run.condition.componentId);
+      this.#conditionRun = {
+        ...run,
+        ...(point && reading ? { tick: point.identity.tick, positionM: reading.positionM } : {}),
+        reason: 'interrupted',
+      };
+    }
     this.#running = false;
     this.#sequence?.pause();
     this.clock.clear();
@@ -548,6 +620,7 @@ export class NetworkSimulation {
     const result = await this.#operate('reset');
     if (!result.ok) this.simulationSessionId = old;
     else {
+      this.#conditionRun = undefined;
       this.#samples = [];
       this.#samplesDropped = 0;
       this.#controlLog = { events: [], dropped: 0 };
@@ -568,10 +641,11 @@ export class NetworkSimulation {
       const corrected = await this.#regulateFlow();
       if (!corrected.ok) return corrected;
       if (!this.#running) break;
-      const result = await this.#operate('advance');
+      const result = await this.#operate('advance', undefined, this.#conditionRun?.reason === 'running');
       if (!result.ok) return result;
       const sequence = await this.#advanceSequence(result.value);
       if (!sequence.ok) return sequence;
+      this.#checkCondition(this.#point ?? result.value);
       completed++;
     }
     return { ok: true, value: completed };
@@ -652,11 +726,7 @@ export class NetworkSimulation {
       // Start a trajectory only after a successful step, using the accepted pre-step frame at tick zero.
       if (initialPoint && this.#samples.length === 0) this.#samples.push(initialPoint);
       if (kind === 'advance' && (manual || tick % this.clock.config.sampleEveryTicks === 0)) {
-        this.#samples.push(point.value);
-        if (this.#samples.length > this.#recordCapacity) {
-          this.#samples.shift();
-          this.#samplesDropped++;
-        }
+        this.#recordSample(point.value);
       }
       return point;
     } catch (cause: unknown) {

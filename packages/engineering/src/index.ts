@@ -72,3 +72,12 @@ export { networkSelectionPolicy } from './network-selection-policy.js';
 export type { DutyAutomaticNumber, DutyAutomaticDefaults, DutyAutomaticAction } from './network-duty-defaults.js';
 export { planNetworkCatalog, selectionStandards, selectionSeries } from './network-catalog.js';
 export type { CatalogRequest, CatalogCandidate, NetworkCatalogPlan } from './network-catalog.js';
+export { sourceControlMode } from './network-duty-source-control.js';
+
+export { storagePipeEligible } from './network-duty-storage-line.js';
+
+export { loadStudyChoices, loadStudies, suctionPipeEligible } from './network-duty-overrunning.js';
+
+export { transientKind } from './network-duty-transient.js';
+
+export { serviceMode, serviceStudies, serviceTargets, sharedFeedbackCircuit } from './network-duty-calibrated.js';

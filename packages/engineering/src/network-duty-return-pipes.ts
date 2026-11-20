@@ -242,11 +242,8 @@ export function returnAccessoryParameters(
     const ratedDropPa = h?.filterRatedDropPa;
     if (ratedFlowM3PerS === undefined || !(ratedFlowM3PerS > 0) || ratedDropPa === undefined || !(ratedDropPa >= 0))
       return fail(name + ' 缺少有效清洁滤芯额定流量或额定压降。');
-    if (
-      internalBypass &&
-      (bypass || internalBypass.componentId !== componentId || internalBypass.ratedDropPa < ratedDropPa)
-    )
-      return fail(name + ' 的内置旁通限该滤芯且不可与外接旁路混接，工况额定压降须不小于保存的清洁额定压降。');
+    if (internalBypass && (internalBypass.componentId !== componentId || internalBypass.ratedDropPa < ratedDropPa))
+      return fail(name + ' 的内置旁通限该滤芯，工况额定压降须不小于保存的清洁额定压降。');
     const pipe = bypass ? pipeParameters(project, bypass, '滤芯外接旁路') : undefined;
     if (pipe && !pipe.ok) return pipe;
     return {
@@ -359,7 +356,7 @@ function parallelFilterFlow(law: FilterLoss, pipe: ReturnPipeLaw, total: number)
     if (mid === low || mid === high) break;
     const bypassDrop = returnPipeLoss(pipe, total - mid).pressureDropPa;
     if (!Number.isFinite(bypassDrop)) return NaN;
-    if (filterDrop(law, mid) < bypassDrop) low = mid;
+    if ((builtInFilterPoint(law, mid)?.pressureDropPa ?? filterDrop(law, mid)) < bypassDrop) low = mid;
     else high = mid;
   }
   return low + (high - low) / 2;
@@ -367,11 +364,10 @@ function parallelFilterFlow(law: FilterLoss, pipe: ReturnPipeLaw, total: number)
 
 export function seriesAccessoryDrop(law: SeriesAccessoryLoss, flowM3PerS: number): number {
   switch (law.kind) {
-    case 'filter':
-      return (
-        builtInFilterPoint(law, flowM3PerS)?.pressureDropPa ??
-        filterDrop(law, law.bypassPipe ? parallelFilterFlow(law, law.bypassPipe, flowM3PerS) : flowM3PerS)
-      );
+    case 'filter': {
+      const q = law.bypassPipe ? parallelFilterFlow(law, law.bypassPipe, flowM3PerS) : flowM3PerS;
+      return builtInFilterPoint(law, q)?.pressureDropPa ?? filterDrop(law, q);
+    }
     case 'meter':
       return law.resistancePaSPerM3 * flowM3PerS;
     case 'one-way-throttle':
@@ -387,10 +383,10 @@ export function reportReturnAccessory(
   downstreamPressurePa: number,
 ): Result<ReturnAccessoryResult> {
   const name = law.label + ' [' + law.componentId + ']';
-  const internalPoint = law.kind === 'filter' ? builtInFilterPoint(law, flowM3PerS) : undefined;
-  const branchFlow =
-    internalPoint?.meterFlowM3PerS ??
-    (law.kind === 'filter' && law.bypassPipe ? parallelFilterFlow(law, law.bypassPipe, flowM3PerS) : flowM3PerS);
+  const housingFlow =
+    law.kind === 'filter' && law.bypassPipe ? parallelFilterFlow(law, law.bypassPipe, flowM3PerS) : flowM3PerS;
+  const internalPoint = law.kind === 'filter' ? builtInFilterPoint(law, housingFlow) : undefined;
+  const branchFlow = internalPoint?.meterFlowM3PerS ?? housingFlow;
   if (law.kind === 'filter' && branchFlow > law.ratedFlowM3PerS * (1 + 1e-12)) {
     const lpm = (value: number) => Number((value * 60000).toPrecision(6));
     return fail(
@@ -410,12 +406,12 @@ export function reportReturnAccessory(
   if (
     internalPoint &&
     (Math.abs(internalPoint.pressureDropPa - pressureDropPa) > Math.max(1, pressureDropPa) * 1e-8 ||
-      Math.abs(branchFlow + internalPoint.bypassFlowM3PerS - flowM3PerS) > Math.max(1e-15, flowM3PerS * 1e-8))
+      Math.abs(branchFlow + internalPoint.bypassFlowM3PerS - housingFlow) > Math.max(1e-15, flowM3PerS * 1e-8))
   )
     return fail(name + ' 内置旁通压降或流量守恒待核。');
   const bypass =
     law.kind === 'filter' && law.bypassPipe
-      ? reportReturnPipe(law.bypassPipe, flowM3PerS - branchFlow, downstreamPressurePa)
+      ? reportReturnPipe(law.bypassPipe, flowM3PerS - housingFlow, downstreamPressurePa)
       : undefined;
   if (bypass && !bypass.ok) return bypass;
   if (bypass?.ok && Math.abs(bypass.value.pressureDropPa - pressureDropPa) > Math.max(1, pressureDropPa) * 1e-8)
@@ -432,7 +428,7 @@ export function reportReturnAccessory(
       ...(law.kind === 'filter' && law.internalBypass && internalPoint
         ? {
             builtInBypass: {
-              totalFlowM3PerS: flowM3PerS,
+              totalFlowM3PerS: housingFlow,
               flowM3PerS: internalPoint.bypassFlowM3PerS,
               state: internalPoint.bypassState,
               crackingPressurePa: law.internalBypass.crackingPressurePa,
@@ -627,7 +623,13 @@ export function findReturnTopology(
       if (usage.element.bypass && valves.size !== routes.size)
         return fail('滤芯 [' + id + '] 与外接旁路须位于两缸共用回油干线，支路并联待核。');
       const pilotFilter = hasPilotRelief && typeId === 'return-filter';
-      const singleBranch = typeId === 'one-way-throttle' || (hasPilotRelief && typeId === 'flow-meter');
+      const singleBranch = hasPilotRelief && (typeId === 'one-way-throttle' || typeId === 'flow-meter');
+      if (
+        typeId === 'one-way-throttle' &&
+        valves.size !== routes.size &&
+        (valves.size !== 1 || !accessories.some((part) => part.typeId === 'return-filter'))
+      )
+        return fail('单向节流阀 [' + id + '] 须串联在单缸回油支路并配滤芯，或串联在全部动作缸的共用回油干线。');
       if ((pilotFilter && valves.size !== routes.size) || (singleBranch && valves.size !== 1))
         return fail(
           (pilotFilter ? '回油过滤器' : typeId === 'one-way-throttle' ? '单向节流阀' : '流量计') +
@@ -704,4 +706,67 @@ export function reportReturnPipe(
       upstreamPressurePa: downstreamPressurePa + loss.pressureDropPa,
     },
   };
+}
+
+/** A single measured T-to-tank line carries only the directional valve's discharge. */
+export function directionalReturnLine(
+  project: NetworkProject,
+  paths: DutyPhasePaths,
+  from: string,
+  tank: string,
+  flow: number,
+  tankPa: number,
+): Result<ReturnPipeResult | null> {
+  const route = paths.uniquePath(from, tank);
+  const pipes = project.design.connections.filter((edge) => edge.kind === 'pipe');
+  if (
+    !route ||
+    route.some((arc) => !arc.ideal && !arc.physicalPipe) ||
+    pipes.length > 1 ||
+    pipes.length !== route.filter((arc) => arc.physicalPipe).length
+  )
+    return fail('换向阀 T 口须经唯一理想油路或一段物理回油管接同一油箱。其他管段或分流待核。');
+  const [pipe] = pipes;
+  if (!pipe) return { ok: true, value: null };
+  const law = pipeParameters(project, pipe, '换向阀 T 口回油管');
+  return law.ok ? reportReturnPipe(law.value, flow, tankPa, '换向阀 T 口回油管') : law;
+}
+
+/** Positive-flow series path in hydraulic order, irrespective of the drawing direction. */
+export function physicalSeries(paths: DutyPhasePaths, from: string, to: string) {
+  const route = paths.uniquePath(from, to);
+  if (!route || route.some((arc) => !arc.ideal && !arc.physicalPipe)) return undefined;
+  return route.flatMap((arc) => (arc.physicalPipe ? [arc.physicalPipe] : []));
+}
+export function seriesParameters(
+  project: NetworkProject,
+  pipes: readonly Pipe[],
+  role: string,
+): Result<readonly ReturnPipeLaw[]> {
+  const laws: ReturnPipeLaw[] = [];
+  for (const [i, pipe] of pipes.entries()) {
+    const law = pipeParameters(project, pipe, pipes.length > 1 ? role + ' 第 ' + (i + 1) + ' 段' : role);
+    if (!law.ok) return law;
+    laws.push(law.value);
+  }
+  return { ok: true, value: laws };
+}
+export function seriesDrop(laws: readonly ReturnPipeLaw[], flow: number) {
+  return laws.reduce((sum, law) => sum + returnPipeLoss(law, flow).pressureDropPa, 0);
+}
+export function seriesReport(
+  laws: readonly ReturnPipeLaw[],
+  flow: number,
+  outlet: number,
+  role: string,
+): Result<readonly ReturnPipeResult[]> {
+  const rows: ReturnPipeResult[] = [];
+  let pressure = outlet;
+  for (const law of [...laws].reverse()) {
+    const row = reportReturnPipe(law, flow, pressure, role);
+    if (!row.ok) return row;
+    rows.push(row.value);
+    pressure = row.value.upstreamPressurePa;
+  }
+  return { ok: true, value: rows.reverse() };
 }

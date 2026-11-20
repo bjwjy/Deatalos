@@ -34,7 +34,10 @@ export class KernelController {
     readonly resourceRoot: string,
     readonly sessionsRoot: string,
   ) {}
-  async request(input: unknown): Promise<unknown> {
+  async request(
+    input: unknown,
+    onProgress?: (sequence: number, percent: number, stage: string) => void,
+  ): Promise<unknown> {
     if (this.#closing) return fail('RUNTIME_CLOSED', '应用正在关闭。');
     const context = this.#generation;
     let length: number;
@@ -58,7 +61,7 @@ export class KernelController {
       request.action === 'control-records';
     if (!readOnly) this.#latestMutation = request.clientSequence;
     if (request.action === 'initialize') {
-      return this.#initialize(request);
+      return this.#initialize(request, onProgress);
     }
     // An explicit operation on the accepted runtime supersedes pending replacement intent.
     if (!readOnly) this.#cancelCandidates();
@@ -70,13 +73,34 @@ export class KernelController {
       return fail('RESPONSE_STALE', '旧工程或旧控制响应失效，未作为当前结果返回。');
     return result;
   }
-  async #initialize(request: KernelServiceRequest): Promise<unknown> {
+  async #initialize(
+    request: KernelServiceRequest,
+    onProgress?: (sequence: number, percent: number, stage: string) => void,
+  ): Promise<unknown> {
     this.#cancelCandidates();
     const candidateSequence = this.#candidateSequence,
       generation = this.#generation;
     this.suspend();
     const candidate = this.#spawn();
     this.#candidates.add(candidate);
+    const report = (message: unknown) => {
+      if (candidateSequence !== this.#candidateSequence || generation !== this.#generation || this.#closing) return;
+      if (
+        message &&
+        typeof message === 'object' &&
+        'event' in message &&
+        message.event === 'initialization-progress' &&
+        'percent' in message &&
+        typeof message.percent === 'number' &&
+        Number.isInteger(message.percent) &&
+        message.percent >= 0 &&
+        message.percent < 100 &&
+        'stage' in message &&
+        typeof message.stage === 'string'
+      )
+        onProgress?.(request.clientSequence, message.percent, message.stage);
+    };
+    candidate.child.on('message', report);
     let committed = false;
     try {
       const result = await this.#send(candidate, { request });
@@ -99,6 +123,7 @@ export class KernelController {
         return fail('RESPONSE_STALE', '候选提交后的响应已被新操作取代。');
       return result;
     } finally {
+      candidate.child.off('message', report);
       if (!committed) await this.#stop(candidate);
       this.#candidates.delete(candidate);
     }

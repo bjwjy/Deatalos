@@ -20,6 +20,7 @@ export interface BackendResources {
   readonly sessionsRoot: string;
   readonly timeoutMs: number;
   readonly expectedResourceDigest?: string;
+  readonly onInitializationProgress?: (percent: number, stage: string) => void;
 }
 export type TransportFactory = (launch: NativeLaunch) => Promise<NativeTransport>;
 interface ReleaseAcknowledgement {
@@ -122,6 +123,7 @@ export class HopsanBackend implements KernelPort {
     readonly directory: string,
     readonly resourceDigest: string,
     private transport: NativeTransport,
+    private initializationStep?: (stage: string) => void,
   ) {
     this.#frameReads = this.#buildFrameReads();
   }
@@ -171,7 +173,23 @@ export class HopsanBackend implements KernelPort {
         manifest.files.length !== required.length
       )
         return failure('BACKEND_RESOURCE_INVALID', '后端资源清单不完整。');
+      // Each verified file, fully configured component and connected edge counts once.
+      // Five more units cover mapping, native launch, model creation, native init and acceptance of the initial state.
+      const total = required.length + compiled.value.components.length + compiled.value.connections.length + 5;
+      let completed = 0,
+        lastPercent = -1,
+        lastStage = '';
+      const step = resources.onInitializationProgress
+        ? (stage: string) => {
+            const percent = Math.floor((++completed * 100) / total);
+            if (percent !== lastPercent || stage !== lastStage) resources.onInitializationProgress?.(percent, stage);
+            lastPercent = percent;
+            lastStage = stage;
+          }
+        : undefined;
+      step?.('校验内核文件');
       const manifestFiles = manifest.files;
+      let verifiedFiles = 0;
       const verified = await Promise.allSettled(
         required.map(async (file) => {
           const entry: unknown = manifestFiles.find(
@@ -182,6 +200,7 @@ export class HopsanBackend implements KernelPort {
             .digest('hex');
           if (!entry || typeof entry !== 'object' || !('sha256' in entry) || entry.sha256 !== digest)
             return failure('BACKEND_RESOURCE_INVALID', '后端资源摘要不匹配：' + file);
+          step?.(++verifiedFiles === required.length ? '启动仿真内核' : '校验内核文件');
           return { ok: true as const, value: true as const };
         }),
       );
@@ -202,9 +221,17 @@ export class HopsanBackend implements KernelPort {
         timeoutMs: resources.timeoutMs,
         extraLibraries: [path.join(resources.resourceRoot, nativeDirectory, 'teaching-components.dll')],
       });
+      step?.('建立仿真模型');
       return {
         ok: true,
-        value: new HopsanBackend(compiled.value.graph.project, compiled.value, directory, resourceDigest, transport),
+        value: new HopsanBackend(
+          compiled.value.graph.project,
+          compiled.value,
+          directory,
+          resourceDigest,
+          transport,
+          step,
+        ),
       };
     } catch (cause) {
       const message = cause instanceof NativeFault ? cause.message : `后端初始化未完成（${codeOf(cause)}）。`;
@@ -358,15 +385,23 @@ export class HopsanBackend implements KernelPort {
     }
   }
   async #compile(): Promise<void> {
+    const step = this.initializationStep;
+    this.initializationStep = undefined;
     await this.transport.command(`new ${this.plan.options.nativeStepS}`);
+    step?.('配置仿真元件');
     for (const c of this.plan.components) {
       await this.transport.command(`add ${c.id} ${c.type}`);
       for (const [k, v] of Object.entries(c.constants)) await this.transport.command(`param ${c.id} ${k} ${v}`);
       for (const [k, v] of Object.entries(c.inputs)) await this.transport.command(`start ${c.id} ${k} Value ${v}`);
       for (const [p, v, n] of c.start) await this.transport.command(`start ${c.id} ${p} ${v} ${n}`);
+      step?.(c === this.plan.components.at(-1) ? '建立模型连接' : '配置仿真元件');
     }
-    for (const edge of this.plan.connections) await this.transport.command('connect ' + edge.join(' '));
+    for (const edge of this.plan.connections) {
+      await this.transport.command('connect ' + edge.join(' '));
+      step?.(edge === this.plan.connections.at(-1) ? '求解初始状态' : '建立模型连接');
+    }
     await this.transport.command('init 86400');
+    step?.('读取初始状态');
   }
   #buildFrameReads(): readonly { readonly command: string; readonly keys: readonly string[] }[] {
     const reads = new Map<string, { ref: NativePort; variable: string }>();

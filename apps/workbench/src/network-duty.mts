@@ -31,6 +31,14 @@ import {
   checkNetworkDuty,
   independentDutyGroups,
   isCombinedSupplyCandidate,
+  sourceControlMode,
+  loadStudyChoices,
+  transientKind,
+  serviceMode,
+  serviceStudies,
+  serviceTargets,
+  sharedFeedbackCircuit,
+  loadStudies,
   isDutySupplyDemand,
   parallelFlowTargets,
   returnTreeLimits,
@@ -56,6 +64,7 @@ import { createNetworkCatalog } from './network-catalog.mjs';
 import {
   calculationNumber as numeric,
   seedCalculationInput,
+  watchCalculationUnits,
   markCalculationOverride,
   readCalculationNumber,
   showCalculationIssues,
@@ -105,6 +114,9 @@ export function createNetworkDuty(hooks: DutyHooks, options: DutyFormOptions = d
   let combinedMode = false;
   let boundaryMode = false;
   root.innerHTML = `<p class="calculation-intro">选择本次工况与参与动作，填写目标要求。</p><label><input id="${id('Automatic')}" type="checkbox" checked>自动补全未填写参数</label><button id="${id('RestoreAutomatic')}" type="button">恢复全部自动配置</button><p class="muted">自动值逐项标明工程来源或教学假设，可直接修改；清空数值恢复自动。缺少可靠来源的项目仍需填写，自动配置不修改回路。</p><label><span data-duty-source-label>指定泵</span><select id="${id('Pump')}"></select></label><div id="${id('PumpFields')}">${numeric('rpm', '要求泵转速', 'r/min', Number.MIN_VALUE)}${numeric('etaV', '泵初选容积效率', '0～1', Number.MIN_VALUE, 1)}${numeric('etaTotal', '泵初选总效率', '0～1', Number.MIN_VALUE, 1)}${numeric('limit', '供油限压预算', 'MPa', Number.MIN_VALUE, 70)}</div><p id="${id('SavedBoundary')}" class="muted"></p><div id="${id('Phases')}"></div><button id="${id('AddPhase')}" type="button">＋ 新增工况</button><button id="${id('Preview')}">核算当前设计</button><button id="${id('Cancel')}" disabled>取消预览</button><button id="${id('Apply')}" disabled>应用到指定泵</button><button id="${id('Export')}" disabled>导出计算过程 CSV</button><button id="${id('Word')}" disabled>导出计算书…</button><div id="${id('Status')}" role="status"></div><div id="${id('Result')}"></div>`;
+  // Each pump needs fresh controls so unit bindings and field IDs belong to that pump.
+  const pumpFieldTemplate = el('PumpFields').innerHTML;
+  watchCalculationUnits(root);
   const invalidate = (message = '') => {
     catalog.invalidate('工况或输入已改变，请重新筛选目录。');
     preview = null;
@@ -253,9 +265,12 @@ export function createNetworkDuty(hooks: DutyHooks, options: DutyFormOptions = d
     container.className = 'calculation-phase';
     const actuators = project.design.components.filter((c) => isNetworkActuatorType(c.typeId));
     const storage =
-      boundaryMode && actuators.length === 0 && project.design.components.some((c) => c.typeId === 'accumulator');
+      supplyGroups.length === 0 &&
+      actuators.length === 0 &&
+      project.design.components.some((c) => c.typeId === 'accumulator');
     const variablePump =
-      !supplyGroups.length && project.design.components.some((c) => c.definition.id === 'teaching:variable-pump');
+      (!supplyGroups.length || combinedMode) &&
+      project.design.components.some((c) => c.definition.id === 'teaching:variable-pump');
     const splitAvailable =
       !supplyGroups.length && actuators.length >= 2 && actuators.every((c) => c.typeId === 'cylinder');
     const hasMeteredLoss = project.design.components.some(
@@ -337,14 +352,157 @@ export function createNetworkDuty(hooks: DutyHooks, options: DutyFormOptions = d
         return `<section data-duty-action="${esc(c.id)}" data-action-label="${esc(c.label)}"><label><input type="checkbox" data-duty-active ${checked ? 'checked' : ''}>参与动作：${esc(c.label)}</label><div data-action-fields ${checked ? '' : 'hidden'}><p data-duty-saved="${esc(c.id)}" class="muted">${esc(savedText(c))}</p><label>方向<select data-duty-direction><option value="forward">${linear ? '伸出' : '正转'}（A供油）</option><option value="reverse">${reverse}</option></select></label>${position}${motor ? numeric('motorSetting', motor.label, motor.unit, 0, motor.maximum) : ''}${numeric('speed', linear ? '目标速度' : '目标转速', linear ? 'mm/s' : 'r/min', Number.MIN_VALUE)}${numeric('load', single ? '总阻性负载（不含缸内弹簧）' : linear ? '总阻性负载' : rotary ? '外部阻性扭矩（另计黏性阻矩）' : '阻性扭矩', linear ? 'kN' : 'N·m')}${numeric('loss', loss, 'MPa', 0, 70)}${numeric('return', ret, 'MPa', 0, 70)}${numeric('etaM', '执行器机械效率', '0～1', Number.MIN_VALUE, 1)}${numeric('etaV', '执行器容积效率', '0～1', Number.MIN_VALUE, 1)}</div></section>`;
       })
       .join('')}`;
+    const resetBench =
+      boundaryMode &&
+      actuators.length === 0 &&
+      project.design.components.some((c) => c.typeId === 'pressure-intensifier') &&
+      !storage;
+    if (resetBench) {
+      const state = document.createElement('div');
+      state.dataset.resetStudy = '';
+      state.innerHTML =
+        '<p>内部复位试验。填写 H 隔离、IN 与 R 卸压至油箱时的复位数据。</p>' +
+        numeric('sweptM3', '剩余扫掠容积', 'L', 0, 1000) +
+        numeric('flowM3PerS', '同条件平均净复位流量', 'L/min', 0, 60000) +
+        numeric('backPa', '测定流量时的 R 口背压', 'MPa', 0, 70);
+      container.querySelector('.calculation-phase-heading')?.after(state);
+    }
+    if (
+      project.design.components.filter((c) => ['sequence-valve', 'pressure-reducing'].includes(c.typeId)).length === 1
+    ) {
+      const box = document.createElement('div');
+      box.innerHTML = numeric('drainLeak', 'P→Y 实测净泄流（按工况，留空沿用零流取压模型）', 'L/min', 0, 60000);
+      container.querySelector('.calculation-phase-heading')?.after(box);
+    }
+    const studiesForProject = Object.keys(serviceStudies).filter(
+      (k) => serviceMode(k) && serviceTargets(project, k).length,
+    );
+    if (studiesForProject.length && !supplyGroups.length) {
+      const box = document.createElement('div');
+      box.innerHTML =
+        '<label>标定专项<select data-service><option value="">常规工况</option>' +
+        studiesForProject
+          .map((k) => (serviceMode(k) ? '<option value="' + k + '">' + esc(serviceStudies[k].label) + '</option>' : ''))
+          .join('') +
+        '</select></label><div data-service-fields></div>';
+      const select = box.querySelector('select')!;
+      select.addEventListener('change', () => {
+        const mode = select.value;
+        for (const element of container.children) {
+          if (
+            element instanceof HTMLElement &&
+            element !== box &&
+            !element.matches('legend,.calculation-phase-heading')
+          ) {
+            if (serviceMode(mode) && !element.hidden) {
+              element.hidden = true;
+              element.dataset.serviceHidden = 'true';
+            } else if (!serviceMode(mode) && element.dataset.serviceHidden) {
+              element.hidden = false;
+              delete element.dataset.serviceHidden;
+            }
+          }
+        }
+        const fields = box.querySelector<HTMLElement>('[data-service-fields]')!;
+        fields.innerHTML = serviceMode(mode)
+          ? '<p>' +
+            esc(serviceStudies[mode].condition) +
+            '</p><label>试验对象<select data-service-target>' +
+            serviceTargets(project, mode)
+              .map((id) => '<option value="' + esc(id) + '">' + esc(id) + '</option>')
+              .join('') +
+            '</select></label>' +
+            serviceStudies[mode].fields.map((f) => numeric('svc-' + f.key, f.label, f.unit, f.min, f.max)).join('')
+          : '';
+      });
+      container.querySelector('.calculation-phase-heading')?.after(box);
+    }
+    const dynamic = transientKind(project);
+    if (dynamic) {
+      const panel = document.createElement('div');
+      panel.innerHTML =
+        '<label><input type="checkbox" data-transient>瞬态核算 · ' +
+        dynamic +
+        '</label><div data-transient-inputs hidden><p class="muted">使用保存的油液、缸初态及泵容积。换向从保存阀位移到下方目标阀位。</p>' +
+        numeric('windowS', '观测时长', 's', 0.0001, 5) +
+        (dynamic === '双缸末端纠偏'
+          ? ''
+          : numeric('switchAtS', '切换开始', 's', 0, 5) + numeric('rampS', '线性过渡时长', 's', 0, 5)) +
+        (dynamic === '变量泵动态恒压'
+          ? numeric('cutoffPa', '截压压差', 'MPa', 0.000001, 70) +
+            numeric('bandPa', '调节带宽', 'MPa', 0.000001, 70) +
+            numeric('responseS', '排量响应时间常数', 's', 0.00001, 5) +
+            numeric('finalAreaM2', '最终负载节流面积', 'mm²', 0, 1e6)
+          : '') +
+        '</div>';
+      panel.querySelector('input')?.addEventListener('change', () => {
+        const on = panel.querySelector('input')!.checked;
+        panel.querySelector<HTMLElement>('[data-transient-inputs]')!.hidden = !on;
+        for (const el of container.querySelectorAll<HTMLElement>('[data-duty-action]')) el.hidden = on;
+      });
+      container.querySelector('.calculation-phase-heading')?.after(panel);
+    }
+    const studies = loadStudyChoices(project);
+    if (studies.length) {
+      const box = document.createElement('div');
+      box.innerHTML =
+        '<label>工况核算方式<select data-load-study><option value="">常规核算</option>' +
+        studies.map((k) => '<option value="' + k + '">' + loadStudies[k] + '</option>').join('') +
+        '</select></label>' +
+        (studies.includes('suction')
+          ? '<div data-inlet-limit hidden>' +
+            numeric('minimumInlet', '厂家最低入口绝压（留空标待核）', 'kPa', Number.MIN_VALUE, 70000) +
+            '</div>'
+          : '') +
+        '<p data-load-note class="muted"></p>';
+      box.querySelector('select')?.addEventListener('change', () => {
+        const k = box.querySelector('select')?.value;
+        const limit = box.querySelector<HTMLElement>('[data-inlet-limit]');
+        if (limit) limit.hidden = k !== 'suction';
+        const note = box.querySelector('p');
+        if (note)
+          note.textContent =
+            k === 'lowering' || k === 'motor-feedback'
+              ? '载荷栏填沿运动方向的外力或驱动扭矩大小。正值表示外部输入机械功。'
+              : k === 'braking' || k === 'regeneration'
+                ? '载荷栏填阻碍运动的外力大小。'
+                : '';
+        for (const input of container.querySelectorAll<HTMLInputElement>('[data-duty-field="load"]')) {
+          const span = input.closest('label')?.querySelector<HTMLElement>('[data-engineering-label]');
+          if (span) {
+            span.dataset.previousLabel ??= span.textContent ?? '';
+            span.textContent =
+              k === 'lowering' ? '助动外载' : k === 'motor-feedback' ? '轴驱动扭矩' : span.dataset.previousLabel;
+            input.dataset.fieldLabel = span.textContent;
+            input.setAttribute('aria-label', span.textContent);
+          }
+        }
+      });
+      container.querySelector('.calculation-phase-heading')?.after(box);
+    }
     if (storage) {
       const state = document.createElement('div');
+      const cycle = project.design.components.some((c) => c.typeId === 'pilot-unloading-valve') && !boundaryMode;
+      if (!boundaryMode) state.dataset.pumpStorage = '';
       state.innerHTML =
         numeric('accumulatorOil', '蓄能器起始／指定油量', 'L', 0, 1000) +
-        '<label><input type="checkbox" data-accumulator-transfer>核算充放油时间</label>' +
-        '<div data-accumulator-target hidden><p class="muted">限独立恒压边界直连蓄能器。填写从上方油量到达的目标油量。</p>' +
-        numeric('accumulatorTargetOil', '蓄能器目标油量', 'L', 0, 1000) +
-        '</div>';
+        (cycle
+          ? '<p>按实际储油节点及卸荷阀阈值计算动作、复位时刻。</p><label><input type="checkbox" data-cycle-thermal>估算循环温升（周期轴功全部转热）</label><div data-thermal-inputs hidden>' +
+            numeric('capacity', '等效热容', 'J/K', Number.MIN_VALUE) +
+            numeric('conductance', '对环境散热系数', 'W/K', 0) +
+            numeric('ambient', '环境温度', '°C', -273, 2000) +
+            numeric('initial', '初始温度', '°C', -273, 2000) +
+            numeric('cycles', '完整循环次数', '次', 1, 1e9) +
+            '</div>'
+          : '<label><input type="checkbox" data-accumulator-transfer>核算充放油时间</label>' +
+            '<div data-accumulator-target hidden><p class="muted">填写目标油量。按图中压力边界、泵、串联管阀或隔离泄漏通路核算。</p>' +
+            numeric('accumulatorTargetOil', '蓄能器目标油量', 'L', 0, 1000) +
+            '</div>');
+      const thermal = state.querySelector<HTMLInputElement>('[data-cycle-thermal]');
+      thermal?.addEventListener('change', () => {
+        const panel = state.querySelector<HTMLElement>('[data-thermal-inputs]');
+        if (panel) panel.hidden = !thermal.checked;
+      });
       const transfer = state.querySelector<HTMLInputElement>('[data-accumulator-transfer]');
       const target = state.querySelector<HTMLElement>('[data-accumulator-target]');
       transfer?.addEventListener('change', () => {
@@ -368,14 +526,44 @@ export function createNetworkDuty(hooks: DutyHooks, options: DutyFormOptions = d
         numeric('pumpCutoff', '截压压差', 'MPa', Number.MIN_VALUE, 70) +
         numeric('pumpPressureBand', '调节带', 'MPa', Number.MIN_VALUE, 70) +
         '</div>';
+      if (combinedMode) {
+        setting.querySelector('[data-pump-pressure-control]')?.closest('label')?.remove();
+        setting.querySelector('[data-pump-pressure-settings]')?.remove();
+        const label = setting.querySelector('[data-engineering-label]');
+        if (label) label.textContent = '本工况变量泵排量指令';
+      } else if (actuators.length === 2 && actuators.every((c) => c.typeId === 'cylinder')) {
+        setting.insertAdjacentHTML(
+          'beforeend',
+          '<label><input type="checkbox" data-load-sense>双缸负载敏感调节</label><div data-load-margin hidden>' +
+            numeric('loadMargin', '泵出口相对最高负载的压差裕量', 'MPa', Number.MIN_VALUE, 70) +
+            '</div>',
+        );
+      }
+      const ls = setting.querySelector<HTMLInputElement>('[data-load-sense]');
       const automatic = setting.querySelector<HTMLInputElement>('[data-pump-pressure-control]');
       const fields = setting.querySelector<HTMLElement>('[data-pump-pressure-settings]');
       const manual = setting.querySelector<HTMLInputElement>('[data-duty-field="pumpCommand"]');
+      ls?.addEventListener('change', () => {
+        const box = setting.querySelector<HTMLElement>('[data-load-margin]');
+        if (box) box.hidden = !ls.checked;
+        if (manual) manual.disabled = ls.checked;
+        if (automatic) automatic.disabled = ls.checked;
+      });
       automatic?.addEventListener('change', () => {
+        if (ls) ls.disabled = automatic.checked;
         if (fields) fields.hidden = !automatic.checked;
         if (manual) manual.disabled = automatic.checked;
       });
       container.querySelector('.calculation-phase-heading')?.after(setting);
+    }
+    if (
+      project.design.components.some((c) => c.typeId === 'adjustable-pressure-switch') &&
+      ((variablePump && actuators.length === 2) || sourceControlMode(project) || (storage && !boundaryMode))
+    ) {
+      const state = document.createElement('label');
+      state.innerHTML =
+        '压力开关前态<select data-switch-previous><option value="">未知</option><option value="on">已动作</option><option value="off">已复位</option></select>';
+      container.querySelector('.calculation-phase-heading')?.after(state);
     }
     if (!combinedMode && supplyGroups.some((group) => group.result.kind === 'ready' && group.cylinders.length > 1)) {
       const note = document.createElement('p');
@@ -786,7 +974,15 @@ export function createNetworkDuty(hooks: DutyHooks, options: DutyFormOptions = d
     const groupPump = group?.pump.id;
     const global = groupPump ? pumpFieldsFor(groupPump) : el('PumpFields');
     if (!global) return null;
-    const skipPump = collectCombined || boundaryMode;
+    const phaseElements = [...el('Phases').querySelectorAll<HTMLElement>('[data-duty-phase]')].filter(
+      (phase) =>
+        phase.querySelector<HTMLInputElement>('[data-duty-included]')?.checked &&
+        (scope === 'all' || phaseActions(phase).some(belongs)),
+    );
+    const skipPump =
+      collectCombined ||
+      boundaryMode ||
+      (phaseElements.length > 0 && phaseElements.every((p) => serviceMode(selector(p, '[data-service]'))));
     const rpm = skipPump ? null : read(global, 'rpm', '泵与供油', '/angularSpeedRadPerS'),
       etaV = skipPump ? null : read(global, 'etaV', '泵与供油', '/pumpVolumetricEfficiency'),
       etaTotal = skipPump ? null : read(global, 'etaTotal', '泵与供油', '/totalEfficiency'),
@@ -794,17 +990,30 @@ export function createNetworkDuty(hooks: DutyHooks, options: DutyFormOptions = d
     const pump = el('Pump');
     if (!collectCombined && !groupPump && pump instanceof HTMLSelectElement && !pump.value)
       issues.push({ control: pump, message: '请选择明确的核算供油元件。' });
-    const phaseElements = [...el('Phases').querySelectorAll<HTMLElement>('[data-duty-phase]')].filter(
-      (phase) =>
-        phase.querySelector<HTMLInputElement>('[data-duty-included]')?.checked &&
-        (scope === 'all' || phaseActions(phase).some(belongs)),
-    );
     if (!phaseElements.length) issues.push({ control: el('Phases'), message: '请纳入至少一个工况。' });
     const phases = phaseElements.map((phase, index) => {
       const name = phase.querySelector('[data-duty-name]'),
         title = name instanceof HTMLInputElement ? name.value.trim() : '';
       if (!title && name instanceof HTMLElement)
         issues.push({ control: name, message: '工况 ' + (index + 1) + '：请填写工况名称。' });
+      const mode = selector(phase, '[data-service]');
+      if (serviceMode(mode)) {
+        const values: Record<string, number> = {};
+        for (const f of serviceStudies[mode].fields) {
+          const key = 'svc-' + f.key;
+          const control = phase.querySelector<HTMLInputElement>('[data-duty-field="' + key + '"]');
+          if (control?.value || control?.validity.badInput) {
+            const n = readCalculationNumber(phase, key, title, issues);
+            if (n !== null) values[f.key] = n * f.scale;
+          }
+        }
+        return {
+          name: title,
+          actions: [],
+          valves: [],
+          service: { mode, target: selector(phase, '[data-service-target]'), values },
+        };
+      }
       const valves = [...phase.querySelectorAll<HTMLSelectElement>('[data-duty-valve]')]
         .filter((v) => belongs(v.dataset.dutyValve))
         .map((v) => {
@@ -821,16 +1030,35 @@ export function createNetworkDuty(hooks: DutyHooks, options: DutyFormOptions = d
           const area = readCalculationNumber(wrapper, 'shutoffArea', title, issues);
           return { ...setting, openingAreaM2: area === null ? null : area * 1e-6 };
         });
+      const dynamics = !!phase.querySelector('[data-transient]:checked');
       const active = [...phase.querySelectorAll<HTMLElement>('[data-duty-action]')].filter((a) => {
         const check = a.querySelector('[data-duty-active]');
-        return belongs(a.dataset.dutyAction) && check instanceof HTMLInputElement && check.checked;
+        return !dynamics && belongs(a.dataset.dutyAction) && check instanceof HTMLInputElement && check.checked;
       });
       const storage = phase.querySelector('[data-duty-field="accumulatorOil"]');
       const oil = storage ? readCalculationNumber(phase, 'accumulatorOil', title, issues) : undefined;
       const targetOil = phase.querySelector('[data-accumulator-transfer]:checked')
         ? readCalculationNumber(phase, 'accumulatorTargetOil', title, issues)
         : undefined;
-      if (!active.length && !storage) {
+      const reset = !!phase.querySelector('[data-reset-study]'),
+        thermal = !!phase.querySelector('[data-cycle-thermal]:checked');
+      const optionalValues = (fields: Record<string, number>) =>
+        Object.fromEntries(
+          Object.entries(fields).flatMap(([key, scale]) => {
+            const control = phase.querySelector<HTMLInputElement>('[data-duty-field="' + key + '"]');
+            if (!control?.value && !control?.validity.badInput) return [];
+            const value = readCalculationNumber(phase, key, title, issues);
+            return value === null ? [] : [[key, value * scale]];
+          }),
+        );
+      const { drainLeak } = optionalValues({ drainLeak: 1 / 60000 });
+      const loadStudy = selector(phase, '[data-load-study]');
+      const inlet = phase.querySelector<HTMLInputElement>('[data-duty-field="minimumInlet"]');
+      const minimum =
+        loadStudy === 'suction' && (inlet?.value || inlet?.validity.badInput)
+          ? readCalculationNumber(phase, 'minimumInlet', title, issues)
+          : undefined;
+      if (!active.length && !storage && !reset && !dynamics && loadStudy !== 'suction') {
         const target = phase.querySelector<HTMLElement>('[data-duty-active]') ?? phase;
         issues.push({ control: target, message: title + '：请勾选至少一个参与动作。' });
       }
@@ -838,13 +1066,16 @@ export function createNetworkDuty(hooks: DutyHooks, options: DutyFormOptions = d
       const endPressure = endCylinder ? readCalculationNumber(phase, 'dividerEndPressure', title, issues) : null;
       const commandInput = phase.querySelector<HTMLInputElement>('[data-duty-field="pumpCommand"]');
       const pressureEnabled = phase.querySelector<HTMLInputElement>('[data-pump-pressure-control]')?.checked;
+      const loadSense = !!phase.querySelector('[data-load-sense]:checked');
+      const margin = loadSense ? readCalculationNumber(phase, 'loadMargin', title, issues) : undefined;
+      const previousSwitch = selector(phase, '[data-switch-previous]');
       const cutoff = pressureEnabled ? readCalculationNumber(phase, 'pumpCutoff', title, issues) : null;
       const band = pressureEnabled ? readCalculationNumber(phase, 'pumpPressureBand', title, issues) : null;
       const pumpCommand =
-        !pressureEnabled && (commandInput?.value || commandInput?.validity.badInput)
+        !loadSense && !pressureEnabled && (commandInput?.value || commandInput?.validity.badInput)
           ? readCalculationNumber(phase, 'pumpCommand', title, issues)
           : undefined;
-      const split = group ? active.length > 1 : splitEnabled(phase);
+      const split = !dynamics && (group ? active.length > 1 : splitEnabled(phase));
       const bypass = phase.querySelector<HTMLInputElement>('[data-duty-filter-bypass]:checked');
       const filterField = (key: string, factor: number) => {
         const value = readCalculationNumber(phase, key, title, issues);
@@ -862,10 +1093,33 @@ export function createNetworkDuty(hooks: DutyHooks, options: DutyFormOptions = d
       return {
         name: title,
         valves,
+        ...(loadStudy ? { loadStudy } : {}),
+        ...(minimum == null ? {} : { minimumInletPa: minimum * 1000 }),
+        ...(phase.querySelector('[data-pump-storage]') ? { pumpStorage: true } : {}),
+        ...(drainLeak === undefined ? {} : { drainLeakM3PerS: drainLeak }),
+        ...(dynamics
+          ? {
+              transient: optionalValues({
+                windowS: 1,
+                switchAtS: 1,
+                rampS: 1,
+                cutoffPa: 1e6,
+                bandPa: 1e6,
+                responseS: 1,
+                finalAreaM2: 1e-6,
+              }),
+            }
+          : {}),
+        ...(reset ? { resetStudy: optionalValues({ sweptM3: 0.001, flowM3PerS: 1 / 60000, backPa: 1e6 }) } : {}),
+        ...(thermal
+          ? { cycleThermal: optionalValues({ capacity: 1, conductance: 1, ambient: 1, initial: 1, cycles: 1 }) }
+          : {}),
         ...(oil === undefined ? {} : { accumulatorOilVolumeM3: oil === null ? null : oil / 1000 }),
         ...(targetOil === undefined
           ? {}
           : { accumulatorTargetOilVolumeM3: targetOil === null ? null : targetOil / 1000 }),
+        ...(loadSense ? { loadSenseMarginPa: margin == null ? null : toSI('pressure', margin) } : {}),
+        ...(previousSwitch ? { switchPrevious: previousSwitch } : {}),
         ...(pumpCommand === undefined ? {} : { pumpCommandPercent: pumpCommand }),
         ...(pressureEnabled
           ? {
@@ -1039,12 +1293,13 @@ export function createNetworkDuty(hooks: DutyHooks, options: DutyFormOptions = d
         const messages = [...new Set(problems.map((problem) => problem.message))];
         const reason =
           messages.slice(0, 4).join('；') + (messages.length > 4 ? `；另有 ${messages.length - 4} 项条件需核对。` : '');
-        const partial = phase.flowSplit
-          ? parallelFlowTargets(project, phase.actions).map(
-              (target) =>
-                `${target.label} 目标 ${fromSI('flow', target.targetFlowM3PerS).toPrecision(5)} L/min，${fromSI('linearSpeed', target.targetSpeedMPerS).toPrecision(5)} mm/s`,
-            )
-          : [];
+        const partial =
+          'flowSplit' in phase && phase.flowSplit
+            ? parallelFlowTargets(project, phase.actions).map(
+                (target) =>
+                  `${target.label} 目标 ${fromSI('flow', target.targetFlowM3PerS).toPrecision(5)} L/min，${fromSI('linearSpeed', target.targetSpeedMPerS).toPrecision(5)} mm/s`,
+              )
+            : [];
         report.push({
           name: phase.name || '工况 ' + element?.dataset.dutyPhase,
           kind: 'incomplete',
@@ -1153,7 +1408,21 @@ export function createNetworkDuty(hooks: DutyHooks, options: DutyFormOptions = d
       el('Result').scrollIntoView({ block: 'start' });
       return;
     }
-    if (boundaryMode) {
+    const advancedSources =
+      el('Phases').querySelector('[data-load-sense]:checked') || sourceControlMode(hooks.editor().document);
+    const hasLoadStudy = [...el('Phases').querySelectorAll<HTMLSelectElement>('[data-load-study]')].some(
+      (x) => x.value,
+    );
+    const hasService = [...el('Phases').querySelectorAll<HTMLSelectElement>('[data-service]')].some((s) => s.value);
+    const hasTransient = !!el('Phases').querySelector('[data-transient]:checked');
+    if (
+      hasService ||
+      hasTransient ||
+      boundaryMode ||
+      advancedSources ||
+      hasLoadStudy ||
+      el('Phases').querySelector('[data-pump-storage]')
+    ) {
       const { duty, pendingPhases } = readDutyReport(false);
       const report = prepareNetworkDutyCalculation(hooks.editor(), duty, pendingPhases);
       if (!report.ok) {
@@ -1173,7 +1442,15 @@ export function createNetworkDuty(hooks: DutyHooks, options: DutyFormOptions = d
           '</li>',
       );
       el('Result').innerHTML =
-        '<h3>供压、储能与增压工况</h3>' +
+        (hasService
+          ? '<h3>标定专项</h3>'
+          : hasTransient
+            ? '<h3>瞬态峰值与事件</h3>'
+            : hasLoadStudy
+              ? '<h3>负载功率方向与吸油低压</h3>'
+              : advancedSources
+                ? '<h3>变量泵与多源稳态控制</h3>'
+                : '<h3>供压、储能与增压工况</h3>') +
         rows
           .map(
             (row) =>
@@ -1273,10 +1550,13 @@ export function createNetworkDuty(hooks: DutyHooks, options: DutyFormOptions = d
         ? pumps
         : sources.length
           ? sources
-          : current.document.design.components.filter((c) => c.typeId === 'accumulator');
+          : current.document.design.components.filter(
+              (c) => c.typeId === 'accumulator' || c.typeId === 'pressure-intensifier',
+            );
       boundaryMode = pumps.length === 0 && selectable.length > 0;
-      supplyGroups = pumps.length > 1 ? independentDutyGroups(current.document) : [];
-      combinedMode = isCombinedSupplyCandidate(current.document);
+      supplyGroups =
+        pumps.length > 1 && !sharedFeedbackCircuit(current.document) ? independentDutyGroups(current.document) : [];
+      combinedMode = supplyGroups.length > 0 && isCombinedSupplyCandidate(current.document);
       goal.render();
       const groupMode = supplyGroups.length > 0;
       const pumpLabel = el('Pump').closest('label');
@@ -1300,7 +1580,7 @@ export function createNetworkDuty(hooks: DutyHooks, options: DutyFormOptions = d
         groupFields.innerHTML = supplyGroups
           .map(
             ({ pump }) =>
-              `<fieldset data-supply-pump="${esc(pump.id)}"><legend>${esc(pump.label || pump.id)} [${esc(pump.id)}]</legend><div class="calculation-condition-grid">${el('PumpFields').innerHTML}</div></fieldset>`,
+              `<fieldset data-supply-pump="${esc(pump.id)}"><legend>${esc(pump.label || pump.id)} [${esc(pump.id)}]</legend><div class="calculation-condition-grid">${pumpFieldTemplate}</div></fieldset>`,
           )
           .join('');
         const intro = root.querySelector('.calculation-intro');
@@ -1320,7 +1600,11 @@ export function createNetworkDuty(hooks: DutyHooks, options: DutyFormOptions = d
           '<option value="">请选择核算元件</option>' +
           selectable.map((c) => '<option value="' + esc(c.id) + '">' + esc(c.label || c.id) + '</option>').join('');
         const pumpControl = el('Pump');
-        if (selectable.length === 1 && selectable[0] && pumpControl instanceof HTMLSelectElement)
+        if (
+          (selectable.length === 1 || sharedFeedbackCircuit(current.document)) &&
+          selectable[0] &&
+          pumpControl instanceof HTMLSelectElement
+        )
           pumpControl.value = selectable[0].id;
         for (const input of root.querySelectorAll<HTMLInputElement>('[data-duty-field]')) {
           input.value = '';

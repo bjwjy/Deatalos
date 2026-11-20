@@ -25,7 +25,7 @@ interface FeedbackHooks {
   runtime(): NetworkRuntimeView | null;
   error(): string;
   invalidated(): boolean;
-  initializing(): boolean;
+  initializationProgress(): { readonly percent: number; readonly stage: string } | null;
 }
 type DiagnosticContext = {
   sessionId: string;
@@ -40,6 +40,28 @@ export function createNetworkFeedback(hooks: FeedbackHooks) {
   let diagnosticOperation = 0,
     activeDiagnosticContext: DiagnosticContext | null = null;
   const batches = createDiagnosticBatches(diagnosticSubject);
+  const progress = $('initializationProgress');
+  let progressDelay: number | undefined;
+  function showInitializationProgress(pending: ReturnType<FeedbackHooks['initializationProgress']>): void {
+    if (!pending) {
+      if (progressDelay !== undefined) window.clearTimeout(progressDelay);
+      progressDelay = undefined;
+      if (!progress.hidden) progress.hidden = true;
+      return;
+    }
+    const value = String(pending.percent);
+    if (progress.getAttribute('aria-valuenow') !== value) {
+      progress.setAttribute('aria-valuenow', value);
+      progress.style.setProperty('--completed', value + '%');
+    }
+    progress.setAttribute('aria-valuetext', pending.stage + '，' + value + '%');
+    if (progress.hidden && progressDelay === undefined) {
+      progressDelay = window.setTimeout(() => {
+        progressDelay = undefined;
+        progress.hidden = !hooks.initializationProgress();
+      }, 500);
+    }
+  }
   function selectDiagnostics() {
     const editor = hooks.editor();
     if (
@@ -94,10 +116,12 @@ export function createNetworkFeedback(hooks: FeedbackHooks) {
             `${g.object}：${diagnosticPresentation(g.items[0]!).title}${g.items.length > 1 ? `（${g.items.length}项）` : ''}`,
         )
         .join('；') + (items.length > 3 ? `；另${items.length - 3}组见诊断` : '');
+    const initializing = hooks.initializationProgress();
+    showInitializationProgress(initializing);
     const summary =
       hooks.error() ||
-      (hooks.initializing()
-        ? '正在初始化仿真…'
+      (initializing
+        ? `正在初始化仿真 · ${initializing.percent}% · ${initializing.stage}`
         : hooks.invalidated()
           ? '设计已修改，旧结果已失效；点击运行重新初始化。'
           : current && hooks.runtime()?.status === 'failed'
@@ -129,7 +153,7 @@ export function createNetworkFeedback(hooks: FeedbackHooks) {
     const runButton = $('run');
     if (runButton.dataset.running !== String(running)) runButton.dataset.running = String(running);
     presentNetworkRun(
-      hooks.initializing()
+      initializing
         ? 'starting'
         : running
           ? 'running'

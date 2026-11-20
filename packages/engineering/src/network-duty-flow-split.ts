@@ -1,8 +1,11 @@
+import { cylinderPipes, workLaws, workDrop, workReport } from './network-duty-cylinder-pipes.js';
+import { bridgePoint, findReturnBridge, reportBridge, type BridgeRow } from './network-duty-return-bridge.js';
 import { diagnostic, type NetworkComponent, type NetworkProject, type Result } from '@hyd/domain';
 import { dutyPhasePaths, type DutyPhasePaths } from './network-duty-accessories.js';
 import { pilotReliefLaw, type PilotReliefLaw, type PilotReliefSplitPoint } from './network-duty-pilot-relief.js';
 import type { DutyPhase } from './network-duty.js';
 import {
+  directionalReturnLine,
   findPilotReturnRoute,
   findReturnTopology,
   isReturnTreeAccessory,
@@ -33,23 +36,23 @@ export const parallelFlowConditions = [
 ] as const;
 
 export const sharedReturnFlowConditions = [
-  '单台定量泵和单油箱，各普通双作用缸使用独立四通换向阀。按 T 口至油箱的唯一回油路径识别汇合及串联管段。吸油按理想通路，物理供油管与先导式溢流阀回油接法分别按专项条件核对。',
+  '单台定量泵和单油箱，各普通双作用缸使用独立四通换向阀。按 T 口至油箱的唯一回油路径识别汇合及串联管段。各 T 口共接桥式或多环回油网时，以同箱为压力边界，按各节点流量守恒及闭环压差平衡求横流。多环网限 64 段、16 个独立环。吸油按理想通路，物理供油管与先导式溢流阀回油接法分别按专项条件核对。',
   '各缸支管取本缸实际排油量 (A排/A进)q，各汇合段叠加流入本段的实际回油量。每段按保存的内径、长度、粗糙度、K 和油液参数计算沿程 f(L/D)ρu²/2 与局部 Kρu²/2。K 取相应流态和本段平均流速的系数。由油箱向上游逐段叠加压降得到各阀 T 侧压力。',
   '雷诺数 Re=uD/ν。Re≤2300 的有流量工况用层流 f=64/Re，Re≥4000 用 Colebrook，之间按两端摩擦系数线性插值并标为过渡区估算。过渡和湍流取 ε/D≤0.1。瞬态仿真按其独立模型域检查。',
-  '使用保存的换向阀有效阀口和串联节流开口，缸容积效率取 1。缸回油腔压力含阀 T 侧压力和本支路排油阀口压降。无物理供油管的路径可按工况给定等效供油损失。',
+  '使用保存的换向阀有效阀口和串联节流开口，缸容积效率取 1。缸回油腔压力含阀 T 侧压力、排油阀口压降和排油工作管损失。独立 A/B 工作管按各自实际流量计损，进油侧计入泵需求。无物理供油管的路径可按工况给定等效供油损失。',
   parallelFlowConditions[2],
   '按各缸速度在目标 ±1% 内判定达标。零流量表示目标方向未建立通流。超越负载、静态保载、瞬态及压力冲击另验。',
 ] as const;
 
 export const multiReturnAccessoryConditions = [
-  '回油附件限单定量泵、单油箱及普通双作用缸的唯一回油路径。每类最多一只。清洁滤芯 A→B 和流量计可串联在单缸支路、汇合支路或共用干线，单向节流阀限单缸回油支路并配滤芯。',
-  '附件流量取其上游各缸的实际排油量之和。先导式溢流阀的双缸专项沿用共用滤芯接法，滤芯按两缸实际排油量之和计流，T 接共用滤芯入口侧时另加实际溢流量。滤芯按 Δp=Δp额定(Q/Q额定)² 计损，超过额定流量时待核。流量计按所在段实际回油量计算 Δp=RQ，实际通流方向另列。附件压降反馈至分流求解，回油基础压力取油箱压力。',
-  '双缸共用滤芯可选一条外接物理旁路，或按工况给定滤芯额定压降、开启压差和有效面积核算内置旁通。按两路压降相等与总回油守恒联立分流，按滤芯支路实际流量校核额定值。内外旁通并用、其他环路和先导溢流混接待核。',
+  '单定量泵、单油箱及普通双作用缸的树状回油附件每类最多一只。多环网桥臂可有多只流量计及正向清洁滤芯，按各桥臂实际流量计损。清洁滤芯 A→B 和流量计可串联在单缸支路、汇合支路或共用干线，单向节流阀可接配滤芯的单缸回油支路或普通共用回油干线。',
+  '树状回油附件流量取其上游各缸的实际排油量之和。先导式溢流阀的双缸专项沿用共用滤芯接法，滤芯按两缸实际排油量之和计流，T 接共用滤芯入口侧时另加实际溢流量。滤芯按 Δp=Δp额定(Q/Q额定)² 计损，超过额定流量时待核。流量计按所在段实际回油量计算 Δp=RQ，实际通流方向另列。附件压降反馈至分流求解，回油基础压力取油箱压力。',
+  '双缸共用滤芯可选一条外接物理旁路，或按工况给定滤芯额定压降、开启压差和有效面积核算内置旁通。按两路压降相等与总回油守恒联立分流，按滤芯支路实际流量校核额定值。内外旁通可并用，按滤芯、内置阀口、外管三路同压差核算。',
 ] as const;
 
 export const returnThrottleConditions = [
-  '单向节流阀限 T 口下游的单缸支路。A→B 按保存的正开口 A、流量系数 Cq 和油液密度 ρ，用实际排油量计算 Δp=ρQ²/[2(CqA)²]，与滤芯、管路压降及各缸分流联立。',
-  'B→A 以 pB−pA 为阀压差。主节流口按实际开口计流；只有超过保存开启压差 Δp启，旁通才按有效压差 Δp−Δp启 及旁通面积计流。两条通路压差相等、流量之和等于本缸实际排油。v3 使用独立旁通面积，v2 沿用最大节流面积。节流口关闭且回油无流时，隔离端压与保压待核；动态开度另验。',
+  '单向节流阀位于 T 口下游的单缸支路或共用干线。A→B 按保存的正开口 A、流量系数 Cq 和油液密度 ρ，用实际排油量计算 Δp=ρQ²/[2(CqA)²]，与滤芯、管路压降及各缸分流联立。',
+  'B→A 以 pB−pA 为阀压差。主节流口按实际开口计流；只有超过保存开启压差 Δp启，旁通才按有效压差 Δp−Δp启 及旁通面积计流。两条通路压差相等、流量之和等于流经该段的实际排油。v3 使用独立旁通面积，v2 沿用最大节流面积。节流口关闭且回油无流时，隔离端压与保压待核；动态开度另验。',
 ] as const;
 
 export interface ParallelFlowTarget {
@@ -86,7 +89,7 @@ interface ReturnSegmentResult extends ReturnPipeResult {
 
 type ReturnAccessoryPlacement = ReturnAccessoryResult & {
   readonly cylinderLabels: readonly string[];
-  readonly location: 'branch' | 'junction' | 'trunk';
+  readonly location: 'branch' | 'junction' | 'trunk' | 'mesh';
 };
 
 type RoutedPilotRelief = PilotReliefSplitPoint & {
@@ -103,11 +106,13 @@ type ParallelFlowOutcome =
       readonly pumpFlowM3PerS: number;
       readonly reliefFlowM3PerS: number;
       readonly shaftPowerW: number;
+      readonly parallelReliefs?: readonly { id: string; flow: number; crack: number; drop: number }[];
       readonly pilotRelief?: RoutedPilotRelief;
       readonly matchesTargets: boolean;
       readonly branches: readonly ParallelFlowBranch[];
       readonly reasons: readonly string[];
       readonly divider?: DividerFlowDetails;
+      readonly bridgeSegments?: readonly BridgeRow[];
       readonly supplySegments?: readonly SupplyPipeResult[];
       readonly workingSegments?: readonly (ReturnPipeResult & { readonly role: string })[];
       readonly returnSegments?: readonly ReturnSegmentResult[];
@@ -163,8 +168,6 @@ function returnAccessoryMixIssue(parts: readonly NetworkComponent[], cylinderCou
     return '回油附件实际分流限一只清洁滤芯、一只流量计及一只单向节流阀。同类多件的组合待核。';
   if (parts.some((part) => part.definition.id === 'teaching:pilot-relief') && (cylinderCount !== 2 || types.length > 2))
     return '先导溢流混接限双缸共用回油过滤器，并可配一只支路流量计或单向节流阀。';
-  if (types.includes('one-way-throttle') && !types.includes('return-filter'))
-    return '单向节流混接要求单缸回油支路上的单向节流阀配一只回油过滤器。';
   return undefined;
 }
 const supportedValveDefinitions = new Set(['teaching:directional-2-4', 'teaching:directional-3-4']);
@@ -363,18 +366,52 @@ export function steadyDutyPipeEligible(project: NetworkProject, connectionId: st
     pump?.definition.id !== 'teaching:pump' ||
     tanks.length !== 1 ||
     !tank ||
-    valves.length < 2 ||
-    valves.length > returnTreeLimits.cylinders ||
-    parts.filter((c) => c.typeId === 'cylinder').length !== valves.length ||
-    parts.some((c) => !allowed.has(c.typeId) && !isReturnTreeAccessory(c)) ||
-    returnAccessoryMixIssue(parts, valves.length) !== undefined ||
     valves.some((c) => !supportedValveDefinitions.has(c.definition.id))
   )
     return false;
+  if (valves.length >= 2) {
+    const work = cylinderPipes(project);
+    if (work.ids.has(connectionId)) {
+      const pipe = project.design.connections.find((e) => e.id === connectionId);
+      return pipe?.kind === 'pipe' && pipeParameters(project, pipe, '工作管').ok;
+    }
+    project = work.idealWork;
+  }
   const phase = dutyPhasePaths(project, { name: '回油干线', valves: [], actions: [] }, false, true);
   if (!phase.ok) return false;
   const paths = phase.value;
   const tankPort = tank.id + ':T';
+  const [valve] = valves;
+  if (valves.length === 1 && valve) {
+    const special = parts.filter((c) =>
+      ['counterbalance', 'flow-divider-combiner', 'synchronizing-flow-divider'].includes(c.typeId),
+    );
+    const kind = special[0]?.typeId;
+    if (
+      special.length !== 1 ||
+      parts.some((c) => !['pump', 'tank', 'valve', 'cylinder', 'volume', 'relief', kind].includes(c.typeId)) ||
+      parts.filter((c) => c.typeId === 'cylinder').length !== (kind === 'counterbalance' ? 1 : 2) ||
+      !paths.idealReachable(tankPort, pump.id + ':S') ||
+      !paths.idealReachable(pump.id + ':P', valve.id + ':P')
+    )
+      return false;
+    const line = directionalReturnLine(
+      project,
+      paths,
+      valve.id + ':T',
+      tankPort,
+      0,
+      tank.parameters.hydraulic?.pressurePa ?? NaN,
+    );
+    return line.ok && line.value?.connectionId === connectionId;
+  }
+  if (
+    valves.length < 2 ||
+    valves.length > returnTreeLimits.cylinders ||
+    parts.filter((c) => c.typeId === 'cylinder').length !== valves.length ||
+    parts.some((c) => !allowed.has(c.typeId) && !isReturnTreeAccessory(c))
+  )
+    return false;
   const pilot = parts.find((part) => part.definition.id === 'teaching:pilot-relief');
   const supply = findSupplyPipeTopology(project, paths, pump);
   if (!supply.ok || !paths.idealReachable(pump.id + ':S', tankPort)) return false;
@@ -384,6 +421,10 @@ export function steadyDutyPipeEligible(project: NetworkProject, connectionId: st
   const filter = parts.find((part) => part.typeId === 'return-filter');
   const pilotRoute = pilot && filter ? findPilotReturnRoute(project, paths, pilot, filter, tankPort) : undefined;
   const pilotPipes = pilotRoute?.ok && pilotRoute.value.kind === 'shared-filter' ? pilotRoute.value.branches : [];
+  const bridge = findReturnBridge(project, paths, tankPort);
+  if (bridge.ok && bridge.value)
+    return project.design.connections.some((edge) => edge.kind === 'pipe' && edge.id === connectionId);
+  if (returnAccessoryMixIssue(parts, valves.length)) return false;
   const topology = findReturnTopology(project, paths, tankPort, pilotPipes, supplyIds);
   if (!topology.ok) return false;
   const segment = topology.value?.segments.find(({ key }) => key === 'pipe:' + connectionId);
@@ -394,8 +435,7 @@ export function steadyDutyPipeEligible(project: NetworkProject, connectionId: st
   if (
     (branch || topology.value?.earlyPilotMerge?.pipeIds.includes(connectionId)) &&
     (!pilot ||
-      parts.filter((part) => part.typeId === 'relief').length !== 1 ||
-      pump.parameters.relief?.enabled === 1 ||
+      parts.filter((part) => part.definition.id === 'teaching:pilot-relief').length !== 1 ||
       !paths.uniquePath(pump.id + ':P', pilot.id + ':P')?.every((arc) => arc.ideal))
   )
     return false;
@@ -468,8 +508,9 @@ function solveParallelCylinderPoint(
     return pending('需要可确认的定量泵和有效供流，变量泵的调节规律未纳入。');
   const unmodeled = parts.filter((c) => !allowed.has(c.typeId) && !isReturnTreeAccessory(c));
   if (unmodeled.length) return pending('缺少分流模型的元件：' + unmodeled.map(label).join('、') + '。');
-  const accessoryIssue = returnAccessoryMixIssue(parts, count);
-  if (accessoryIssue) return pending(accessoryIssue);
+
+  const work = cylinderPipes(project);
+  project = work.idealWork;
   const checked = dutyPhasePaths(project, phase, false, true);
   if (!checked.ok) return pending(checked.diagnostics.map((d) => d.message).join('；'));
   const paths = checked.value;
@@ -493,8 +534,8 @@ function solveParallelCylinderPoint(
     const name = label(pilotValve) + ' [' + pilotValve.id + ']';
     const filter = parts.find((part) => part.typeId === 'return-filter');
     if (count !== 2 || !filter) return pending(name + ' 的先导溢流分配限单泵双缸共用回油滤芯。');
-    if (externalReliefs.length !== 1 || internal?.enabled === 1)
-      return pending(name + ' 与其他溢流阀并用时，本批先导溢流分配待核。');
+    if (externalReliefs.filter((v) => v.definition.id === 'teaching:pilot-relief').length !== 1)
+      return pending(name + ' 与第二只先导式溢流阀并联，两个先导回路的压力反馈待核。');
     const feed = paths.uniquePath(p, pilotValve.id + ':P');
     if (!feed?.every((arc) => arc.ideal)) return pending(name + ' 的 P 口须经唯一理想通路接供油母线，供油端压力待核。');
     const route = findPilotReturnRoute(project, paths, pilotValve, filter, t);
@@ -512,7 +553,14 @@ function solveParallelCylinderPoint(
     return { kind: 'pending', targets, reasons: supplyTopologyResult.diagnostics.map((item) => item.message) };
   const supplyTopology = supplyTopologyResult.value;
   const supplyIds = new Set(supplyTopology?.segments.map(({ id }) => id));
-  const topologyResult = findReturnTopology(project, paths, t, pilotPipes, supplyIds);
+  const bridgeResult = findReturnBridge(project, paths, t);
+  if (!bridgeResult.ok) return pending(bridgeResult.diagnostics.map((d) => d.message).join('；'));
+  const bridge = bridgeResult.value;
+  const accessoryIssue = bridge ? undefined : returnAccessoryMixIssue(parts, count);
+  if (accessoryIssue) return pending(accessoryIssue);
+  const topologyResult = bridge
+    ? { ok: true as const, value: null }
+    : findReturnTopology(project, paths, t, pilotPipes, supplyIds);
   if (!topologyResult.ok) return pending(topologyResult.diagnostics.map((d) => d.message).join('；'));
   const topology = topologyResult.value;
   const bypass = phase.filterBypass;
@@ -527,19 +575,48 @@ function solveParallelCylinderPoint(
       !segment ||
       segment.element.kind !== 'accessory' ||
       segment.element.component.typeId !== 'return-filter' ||
-      segment.element.bypass ||
       segment.valves.size !== 2
     )
-      return pending('内置旁通限双缸同时动作且共用指定滤芯，不支持外接旁路或先导式溢流混接。');
+      return pending('内置旁通限双缸同时动作且共用指定滤芯，先导式溢流混接待核。');
   }
-  if ((topology || supplyTopology) && phase.actions.some((a) => Math.abs(a.returnPressurePa - tankPressurePa) > 1e-6))
+  if (
+    (bridge || topology || supplyTopology) &&
+    phase.actions.some((a) => Math.abs(a.returnPressurePa - tankPressurePa) > 1e-6)
+  )
     return pending('共用回油干线的回油基准须等于油箱压力。请移除手填的回油管段压降，以免重复计入。');
-  const boundary = topology ? new Map([...topology.routes.keys()].map((valve) => [valve, valve + ':T'])) : t;
+  const boundary = bridge
+    ? new Map(parts.filter((part) => part.typeId === 'valve').map((valve) => [valve.id, valve.id + ':T']))
+    : topology
+      ? new Map([...topology.routes.keys()].map((valve) => [valve, valve + ':T']))
+      : t;
   const result = cylinderBranchLaws(project, phase, paths, p, boundary, tankPressurePa, supplyTopology?.routes);
   if (!result.ok) return pending(result.diagnostics.map((d) => d.message).join('；'));
   const laws = result.value;
+  const working = new Map<string, { feed: ReturnPipeLaw[]; drain: ReturnPipeLaw[]; loadPa: number }>();
+  for (const law of laws) {
+    const action = phase.actions.find((a) => a.componentId === law.target.componentId)!;
+    const forward = action.direction === 'forward';
+    const id = law.target.componentId;
+    const feed = workLaws(project, work.pipes.get(id + (forward ? ':A' : ':B')) ?? [], id + ' 进油工作管'),
+      drain = workLaws(project, work.pipes.get(id + (forward ? ':B' : ':A')) ?? [], id + ' 排油工作管');
+    if (!feed.ok) return pending(feed.diagnostics.map((d) => d.message).join('；'));
+    if (!drain.ok) return pending(drain.diagnostics.map((d) => d.message).join('；'));
+    if (feed.value.length || drain.value.length) {
+      if (action.supplyLossPa !== 0 || action.returnPressurePa !== tankPressurePa)
+        return pending(id + ' 工作管已按实际流量计损，手填供油损失须为零、回油基准须取油箱压力。');
+      working.set(id, {
+        feed: feed.value,
+        drain: drain.value,
+        loadPa: action.resistingLoad / action.mechanicalEfficiency / law.inletArea,
+      });
+    }
+  }
+  const extraDrop = (law: BranchLaw, q: number) => {
+    const w = working.get(law.target.componentId);
+    return w ? workDrop(w.feed, q) + law.areaRatio * workDrop(w.drain, q * law.areaRatio) : 0;
+  };
   const rho = project.design.fluid.densityKgPerM3;
-  const reliefs: { startPa: number; resistance: number }[] = [];
+  const reliefs: { id: string; startPa: number; resistance: number }[] = [];
   for (const valve of externalReliefs) {
     if (valve === pilotValve) continue;
     const h = valve.parameters.hydraulic;
@@ -553,6 +630,7 @@ function solveParallelCylinderPoint(
     )
       return pending(label(valve) + ' 缺少可核算的直动溢流条件，须在泵口取压并直回同一油箱。');
     reliefs.push({
+      id: valve.id,
       startPa: tankPressurePa + h.settingDifferentialPa,
       resistance: orificeResistance(rho, h.flowCoefficient, h.maximumAreaM2),
     });
@@ -561,6 +639,7 @@ function solveParallelCylinderPoint(
     if (!internal.maximumAreaM2 || !internal.flowCoefficient || internal.settingDifferentialPa === undefined)
       return pending('泵内置溢流缺少设定、面积或流量系数。');
     reliefs.push({
+      id: pump.id,
       startPa: tankPressurePa + internal.settingDifferentialPa,
       resistance: orificeResistance(rho, internal.flowCoefficient, internal.maximumAreaM2),
     });
@@ -569,7 +648,7 @@ function solveParallelCylinderPoint(
   let point: SplitPoint | null = null;
   const segmentLaws: (ReturnPipeLaw | ReturnAccessoryLaw)[] = [];
   const segmentIndices = new Map<string, number>();
-  if (topology || supplyTopology) {
+  if (bridge || topology || supplyTopology || working.size) {
     const dedicatedBranches = topology?.dedicatedPilotPipes ?? [];
     const earlyMerge = topology?.earlyPilotMerge;
     const issues: string[] = [];
@@ -631,7 +710,17 @@ function solveParallelCylinderPoint(
         if (index === undefined) return pending('供油管 [' + id + '] 未建立计算索引。');
         supplySegments.push(index);
       }
-      demands.push({ ...law, segments, ...(supplySegments.length ? { supplySegments } : {}) });
+      if (bridge) segments.push(segmentLaws.length);
+      demands.push({
+        ...(working.has(law.target.componentId)
+          ? {
+              areaRatio: law.areaRatio,
+              pressureAtFlow: (q: number) => law.startPa + law.resistance * q * q + extraDrop(law, q),
+            }
+          : law),
+        segments,
+        ...(supplySegments.length ? { supplySegments } : {}),
+      });
     }
     demands.push(...reliefs.map((relief) => ({ ...relief, areaRatio: 0, segments: [] })));
     const pilotSegments: number[] = [];
@@ -656,6 +745,7 @@ function solveParallelCylinderPoint(
         ? (q: number) => returnPipeLoss(law, q).pressureDropPa
         : (q: number) => seriesAccessoryDrop(law, q),
     );
+    if (bridge) losses.push((q: number) => bridgePoint(bridge, q).inletPa);
     const actual = solveReturnNetwork(losses, demands, pumpFlow);
     if (actual) {
       const flowByValve = new Map(active.map((law, i) => [law.valve.id, actual.flows[i]]));
@@ -675,26 +765,27 @@ function solveParallelCylinderPoint(
         pilotReturnPa = branch.value.upstreamPressurePa;
         returnBranchSegments.unshift(branch.value);
       }
-      const pilotBoundary = pilotLaw && pilotReturnPa + pilotLaw.differentialAtFlow(reliefFlowM3PerS);
+      const pilotFlow = pilotLaw ? actual.flows[actual.flows.length - 1]! : 0;
+      const pilotBoundary = pilotLaw && pilotReturnPa + pilotLaw.differentialAtFlow(pilotFlow);
       // Use the relief's pressure equality for a flowing valve, and its
       // opening inequality when idle. This avoids rounding across cracking.
       const pressurePa =
         pilotBoundary === undefined
           ? actual.pressurePa
-          : reliefFlowM3PerS > 0
+          : pilotFlow > 0
             ? pilotBoundary
             : Math.min(actual.pressurePa, pilotBoundary);
       const pilotRelief = pilotLaw?.atPressure(pressurePa, pilotReturnPa);
       if (
         pilotRelief &&
         (!Number.isFinite(pilotRelief.totalFlowM3PerS) ||
-          Math.abs(pilotRelief.totalFlowM3PerS - reliefFlowM3PerS) > pumpFlow * 1e-8 ||
+          Math.abs(pilotRelief.totalFlowM3PerS - pilotFlow) > pumpFlow * 1e-8 ||
           Math.abs(pressurePa - actual.pressurePa) > Math.max(1, pressurePa) * 1e-8)
       )
         return pending(pilotRelief.label + ' 的先导与主阀回箱流量未能通过联立残差校核。');
       point = {
         pressurePa,
-        reliefFlowM3PerS: pilotRelief?.totalFlowM3PerS ?? reliefFlowM3PerS,
+        reliefFlowM3PerS,
         ...(pilotRelief
           ? {
               pilotRelief: {
@@ -743,6 +834,14 @@ function solveParallelCylinderPoint(
   if (supplyReports && !supplyReports.ok)
     return { kind: 'pending', targets, reasons: supplyReports.diagnostics.map((item) => item.message) };
 
+  const bridgeReport =
+    bridge &&
+    reportBridge(
+      bridge,
+      point.branches.reduce((sum, b) => sum + b.flowM3PerS * b.law.areaRatio, 0),
+      tankPressurePa,
+    );
+  if (bridgeReport && !bridgeReport.ok) return pending(bridgeReport.diagnostics.map((d) => d.message).join('；'));
   const branches: ParallelFlowBranch[] = [];
   const segmentResults = new Map<
     string,
@@ -781,11 +880,15 @@ function solveParallelCylinderPoint(
         location: valves.size === topology?.routes.size ? 'trunk' : valves.size === 1 ? 'branch' : 'junction',
       });
   }
+  if (bridgeReport?.ok)
+    for (const row of bridgeReport.value.accessories ?? [])
+      returnAccessories.push({ ...row, cylinderLabels: targets.map((t) => t.label), location: 'mesh' });
+  const workingSegments: (ReturnPipeResult & { role: string })[] = [];
   for (const { law: branch, flowM3PerS } of point.branches) {
     const returnFlowM3PerS = flowM3PerS * branch.areaRatio;
     const first = topology?.routes.get(branch.valve.id)?.[0];
     const nearest = first === undefined ? undefined : segmentResults.get(first);
-    const branchDrop = nearest ? nearest.upstreamPressurePa - tankPressurePa : 0;
+    const branchDrop = nearest ? nearest.upstreamPressurePa - tankPressurePa : (bridgeReport?.value.dropPa ?? 0);
     const returnBoundaryPa = branch.returnBoundaryPa + branchDrop;
     const startPa = branch.startPa + branch.areaRatio * branchDrop;
     const lastSupply = supplyTopology?.routes.get(branch.valve.id)?.at(-1);
@@ -793,8 +896,9 @@ function solveParallelCylinderPoint(
       lastSupply === undefined ? pressurePa : supplyReports?.value.get(lastSupply)?.downstreamPressurePa;
     if (valveInletPressurePa === undefined || valveInletPressurePa < 0)
       return pending(branch.target.label + ' 的阀 P 口压力超出供油侧核算范围。');
-    if ((topology || supplyTopology) && !branch.closed) {
-      const difference = valveInletPressurePa - (startPa + branch.resistance * flowM3PerS ** 2);
+    if ((bridge || topology || supplyTopology || working.size) && !branch.closed) {
+      const difference =
+        valveInletPressurePa - (startPa + branch.resistance * flowM3PerS ** 2 + extraDrop(branch, flowM3PerS));
       const residual = flowM3PerS > 0 ? Math.abs(difference) : Math.max(0, difference);
       if (!Number.isFinite(residual) || residual > Math.max(1, pressurePa) * 1e-8)
         return pending(branch.target.label + ' 的阀口与管段压力平衡待核。');
@@ -809,7 +913,23 @@ function solveParallelCylinderPoint(
           : ratio > 1 + relativeSpeedTolerance
             ? 'fast'
             : 'matched';
+    const w = working.get(branch.target.componentId);
+    const valveReturn = returnBoundaryPa + branch.returnResistance * returnFlowM3PerS ** 2;
+    const back = valveReturn + (w ? workDrop(w.drain, returnFlowM3PerS) : 0);
+    const chamber = w && flowM3PerS > 0 ? w.loadPa + branch.areaRatio * back : undefined;
+    if (w) {
+      const prefix = branch.target.label + ' [' + branch.target.componentId + '] ';
+      const drain = workReport([...w.drain].reverse(), returnFlowM3PerS, valveReturn, prefix + '排油工作管');
+      if (!drain.ok) return pending(drain.diagnostics[0]!.message);
+      workingSegments.push(...drain.value);
+      if (!branch.closed) {
+        const feed = workReport(w.feed, flowM3PerS, chamber ?? valveInletPressurePa, prefix + '进油工作管');
+        if (!feed.ok) return pending(feed.diagnostics[0]!.message);
+        workingSegments.push(...feed.value);
+      }
+    }
     branches.push({
+      ...(chamber === undefined ? {} : { inletPressurePa: chamber }),
       ...branch.target,
       valveId: branch.valve.id,
       valveAreaM2: branch.valveAreaM2,
@@ -823,7 +943,7 @@ function solveParallelCylinderPoint(
       status,
       closed: branch.closed,
       returnFlowM3PerS,
-      returnPressurePa: returnBoundaryPa + branch.returnResistance * returnFlowM3PerS ** 2,
+      returnPressurePa: back,
       ...(nearest?.cylinderLabels.length === 1 && 'connectionId' in nearest ? { returnPipe: nearest } : {}),
     });
   }
@@ -838,7 +958,7 @@ function solveParallelCylinderPoint(
     reasons.push(`总供流不足，泵供流 ${display(pumpFlow)} L/min，目标合计 ${display(targetFlow)} L/min。`);
   if (reliefFlowM3PerS > pumpFlow * 1e-10)
     reasons.push(
-      `${point.pilotRelief ? '先导式溢流阀' : '直动溢流'}分走 ${display(reliefFlowM3PerS)} L/min，剩余流量参与缸支路分配。`,
+      `${point.pilotRelief && reliefs.length ? '并联溢流阀合计' : point.pilotRelief ? '先导式溢流阀' : '直动溢流'}分走 ${display(reliefFlowM3PerS)} L/min，剩余流量参与缸支路分配。`,
     );
   if (pressurePa > supply.pressureBudgetPa)
     reasons.push(`实际分流点超过试算预算 ${Number((supply.pressureBudgetPa / 1e6).toPrecision(6))} MPa。`);
@@ -861,6 +981,18 @@ function solveParallelCylinderPoint(
     ...(point.pilotRelief ? { pilotRelief: point.pilotRelief } : {}),
     branches,
     reasons,
+    ...(reliefs.length > 1 || (pilotLaw && reliefs.length > 0)
+      ? {
+          parallelReliefs: reliefs.map((r) => ({
+            id: r.id,
+            flow: orificeFlow(pressurePa, r),
+            crack: r.startPa - tankPressurePa,
+            drop: pressurePa - tankPressurePa,
+          })),
+        }
+      : {}),
+    ...(workingSegments.length ? { workingSegments } : {}),
+    ...(bridgeReport ? { bridgeSegments: bridgeReport.value.rows } : {}),
     ...(supplyReports ? { supplySegments: [...supplyReports.value.values()] } : {}),
     ...(returnSegments.length ? { returnSegments } : {}),
     ...(returnAccessories.length ? { returnAccessories } : {}),

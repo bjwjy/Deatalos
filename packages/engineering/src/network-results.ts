@@ -1,4 +1,5 @@
 import {
+  engineeringUnitChoices,
   diagnostic,
   immutable,
   parseNetworkProject,
@@ -481,21 +482,16 @@ export function networkResultView(
 
 /** Shared formatting for panel/curve/formula/export clients; SI value remains intact. */
 export function displayNetworkQuantity(q: ResultQuantity) {
-  const units: Readonly<Record<string, readonly [string, number]>> = {
-    Pa: ['MPa', 1e-6],
-    'm³/s': ['L/min', 60000],
-    m: ['mm', 1000],
-    'm/s': ['mm/s', 1000],
-    'rad/s': ['r/min', 30 / Math.PI],
-    W: ['kW', 0.001],
-    'm²': ['mm²', 1e6],
-  };
-  const [unit, scale] =
-    q.unit === 'm³' && q.field.endsWith('.cavity-volume') ? ['mL', 1e6] : (units[q.unit] ?? [q.unit, 1]);
+  const choice =
+    q.unit === 'm³' && q.field.endsWith('.cavity-volume')
+      ? { label: 'mL', scale: 1e-6 }
+      : engineeringUnitChoices(q.unit, q.field)[0];
+  if (!choice) throw new Error('Missing result display unit');
+  const unit = choice.label;
   return immutable({
     ...q,
     si: { unit: q.unit, value: q.value },
     unit,
-    value: q.value.kind === 'known' ? known(q.value.value * scale) : q.value,
+    value: q.value.kind === 'known' ? known(q.value.value / choice.scale) : q.value,
   });
 }

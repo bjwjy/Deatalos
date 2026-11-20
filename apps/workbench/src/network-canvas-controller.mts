@@ -1,3 +1,4 @@
+import { moveSharedRun } from './network-shared-tracks.mjs';
 import { createCanvasRenderer, type CanvasRenderView } from './network-canvas-renderer.mjs';
 import { createCanvasViewport } from './network-canvas-viewport.mjs';
 import { createCanvasTargets, type BoardTarget } from './network-canvas-targets.mjs';
@@ -74,7 +75,14 @@ type Drag = { start: Point; dx: number; dy: number } & (
   | { kind: 'objects'; selection: Selection[] }
   | { kind: 'pan'; viewport: Viewport }
   | { kind: 'marquee'; additive: boolean }
-  | { kind: 'path'; id: string; points: readonly Point[]; index: number; part: 'bend' | 'segment' }
+  | {
+      kind: 'path';
+      id: string;
+      points: readonly Point[];
+      members: Parameters<typeof moveSharedRun>[0];
+      index: number;
+      part: 'bend' | 'segment';
+    }
 );
 export function createNetworkCanvas(hooks: CanvasHooks) {
   let connectionKind: 'pipe' | 'ideal' = 'ideal',
@@ -91,6 +99,7 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
   let activeBend: number | null = null;
   let drag: Drag | null = null,
     pathPreview: NetworkProject['layout']['routes'][number] | null = null;
+  let sharedPreview: NetworkProject | null = null;
   const gesture = new CanvasGesture<BoardTarget>();
   const view = createCanvasViewport(hooks);
   const renderer = createCanvasRenderer();
@@ -119,8 +128,8 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
     select([]);
     connectArmed = false;
   }
-  function fitAll(): void {
-    view.fit();
+  function fitAll(persist = true): void {
+    view.fit(persist);
     draw();
   }
   function currentRoute(id: string): Point[] {
@@ -191,7 +200,20 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
     view.update();
     const document = hooks.editor().document;
     const drawing =
-      drag?.kind === 'objects' ? moveSelection(document, drag.selection, { x: drag.dx, y: drag.dy }) : document;
+      drag?.kind === 'objects'
+        ? moveSelection(document, drag.selection, { x: drag.dx, y: drag.dy })
+        : (sharedPreview ??
+          (pathPreview
+            ? {
+                ...document,
+                layout: {
+                  ...document.layout,
+                  routes: document.layout.routes.map((route) =>
+                    route.connectionId === pathPreview?.connectionId ? pathPreview : route,
+                  ),
+                },
+              }
+            : document));
     const physicalTap =
       firstEndpoint !== null && firstEndpoint.kind !== 'route' && isExternalMotorPressureTap(document, firstEndpoint);
     branchPoints =
@@ -425,6 +447,7 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
       gesture.cancel();
       drag = null;
       pathPreview = null;
+      sharedPreview = null;
       releasedPath = null;
       document.documentElement.classList.remove('network-dragging');
       const pointer = captured;
@@ -510,6 +533,7 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
               id: target.id,
               index: target.index,
               part: target.part,
+              members: renderer.tracks(hooks.editor().document).members(target.id),
               points: target.part === 'bend' && route?.mode === 'manual' ? route.points : currentRoute(target.id),
             };
         }
@@ -604,11 +628,25 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
             b = d.points[d.index + 1];
           if (d.part === 'segment' && a && b && (a.x === b.x ? d.dx === 0 : d.dy === 0)) {
             pathPreview = null;
+            sharedPreview = null;
             draw();
             return;
           }
-          pathPreview =
-            d.part === 'segment'
+          const project = hooks.editor().document;
+          const updates = d.part === 'segment' && moveSharedRun(d.members, d.id, d.index, { x: d.dx, y: d.dy });
+          const changed = updates && new Map(updates.map((r) => [r.connectionId, r]));
+          sharedPreview = changed
+            ? {
+                ...project,
+                layout: {
+                  ...project.layout,
+                  routes: project.layout.routes.map((r) => changed.get(r.connectionId) ?? r),
+                },
+              }
+            : null;
+          pathPreview = sharedPreview
+            ? null
+            : d.part === 'segment'
               ? segmentRoute(d.id, d.points, d.index, { x: d.dx, y: d.dy })
               : manualRoute(
                   d.id,
@@ -634,7 +672,9 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
       const result = gesture.finish(event.pointerId, event.clientX, event.clientY);
       if (!result) return;
       const move = drag,
-        preview = pathPreview;
+        preview = pathPreview,
+        shared = sharedPreview;
+      sharedPreview = null;
       drag = null;
       pathPreview = null;
       captured = null;
@@ -692,6 +732,9 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
             else if (hooks.mutate(plan.value.document, plan.value.inserted) && plan.value.inserted)
               hooks.toast('流量计已串入管线，可一次撤销；双击可修改阻力参数。');
           } else hooks.mutate(candidate, false);
+        } else if (move.kind === 'path' && shared) {
+          activeBend = null;
+          if (hooks.mutate(shared, false)) hooks.toast('共用管段和相连支路已一起移动。');
         } else if (move.kind === 'path' && preview) setRoute(preview);
         else if (move.kind === 'marquee') {
           const found = marqueeSelection(
@@ -907,7 +950,7 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
   }
   function setup() {
     setupDrag();
-    $('fitAll').addEventListener('click', fitAll);
+    $('fitAll').addEventListener('click', () => fitAll());
     $('manualRoute').addEventListener('click', () => {
       if (selected?.kind !== 'connection' || gesture.active || firstEndpoint) return;
       setRoute(manualRoute(selected.id, currentRoute(selected.id)));
@@ -1016,6 +1059,7 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
     },
     setup,
     draw,
+    fitAll,
     select,
     locateDiagnostic,
     toolView: () => ({ ...view.value }),

@@ -87,7 +87,7 @@ export function networkDrawingJunctions(
 }
 
 /** Ordinary transverse interior crossings are allowed. Overlaps, T contacts and corner contacts are not. */
-export function branchPathCost(
+export function branchCrossingCount(
   points: readonly DrawingPoint[],
   occupied: readonly DrawingSegment[],
   contacts: readonly DrawingPoint[] = [],
@@ -118,10 +118,20 @@ export function branchPathCost(
         crossings++;
       }
     }
+  return crossings;
+}
+export function branchPathCost(
+  points: readonly DrawingPoint[],
+  occupied: readonly DrawingSegment[],
+  contacts: readonly DrawingPoint[] = [],
+  crossingCost = 64,
+): number {
+  const crossings = branchCrossingCount(points, occupied, contacts);
+  if (!Number.isFinite(crossings)) return Infinity;
   return (
     segments(points).reduce((n, s) => n + distance(s.from, s.to), 0) +
     Math.max(0, points.length - 2) * 24 +
-    crossings * 64
+    crossings * crossingCost
   );
 }
 

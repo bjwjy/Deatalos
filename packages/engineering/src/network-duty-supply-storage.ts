@@ -1,3 +1,9 @@
+import { servicePoint, serviceStudies } from './network-duty-calibrated.js';
+import { transientConditions, transientPoint } from './network-duty-transient.js';
+import { loadConditions, loadStudyPoint } from './network-duty-overrunning.js';
+import { storageLine } from './network-duty-storage-line.js';
+import { pumpStoragePoint, resetPoint } from './network-duty-storage-cycle.js';
+import { sourceControlMode, sourceControlConditions, sourceControlPoint } from './network-duty-source-control.js';
 import { diagnostic, immutable, type NetworkComponent, type NetworkProject, type Result } from '@hyd/domain';
 import { dutyPhasePaths, type DutyPhasePaths } from './network-duty-accessories.js';
 import { orificeResistance } from './network-duty-flow-split.js';
@@ -5,14 +11,27 @@ import type { DutyPhase, DutyBoundaryDemand, NetworkDutyPlan, NetworkDutyRequest
 import type { CalculationStep } from './network-learning.js';
 
 export function boundaryDutyConditions(project: NetworkProject, request: NetworkDutyRequest): readonly string[] {
+  if (request.phases.every((p) => p.service))
+    return [...new Set(request.phases.flatMap((p) => (p.service ? [serviceStudies[p.service.mode].condition] : [])))];
+  if (request.phases.some((p) => p.transient)) return transientConditions(project);
+  if (request.phases.some((p) => p.loadStudy)) return loadConditions(request.phases);
+  if (request.phases.some((p) => p.resetStudy))
+    return [
+      '增压器 IN 与 R 充分卸压至同一油箱，H 隔离。按该背压和负载下实测或厂家给出的平均净复位流量与剩余扫掠容积估算复位时间，未计换向延时。',
+    ];
+  if (request.phases.some((p) => p.pumpStorage))
+    return [
+      '定量泵恒速，泵容积效率作用于理论流量，另计保存的压差泄漏及内置溢流。采用准稳态阀口与气体多变模型；忽略油液压缩、阀响应延迟及压力冲击。',
+      '卸荷阀由 X−T 压差控制，压力开关监测同一储油节点，动作与复位阈值按各自压力基准核对。循环温升采用整周期平均轴功率全部进入所给热容，按恒定环境温度与散热系数估算。',
+    ];
   if (project.design.components.some((part) => part.typeId === 'accumulator'))
     return [
-      '蓄能器按指定油量核算。气体使用绝压、多变指数和保存的气体容积下限。储能为相对预充空态的气体压缩功。H 接独立恒压源时另列该储能状态的瞬时充放油方向与流量。',
+      '蓄能器按指定油量核算。气体使用绝压、多变指数和保存的气体容积下限。储能为相对预充空态的气体压缩功。按实际接线列瞬时流量。隔离保压需明确截止状态及泄漏支路；理想密封按零泄漏估算。',
       ...(request.phases.some((phase) => phase.accumulatorTargetOilVolumeM3 !== undefined)
         ? [
-            '充放油时间限恒压边界 P 经理想管路直连单只气囊式蓄能器 H。边界在整个工况保持压力，可供油并吸收回流。初始与目标油量均由本工况给出，口部采用保存的线性阻力。',
+            '充放油时间限恒压边界经直连、一段物理管或一只给定开口的节流阀接单只气囊式蓄能器 H。边界在整个工况保持压力，可供油并吸收回流。初始与目标油量均由本工况给出，口部采用保存的线性阻力。',
             '按气体压力随油量变化积分计算时间。正流量为充油，负流量为放油。若目标恰好等于平衡油量，只能渐近接近。空囊目标列到达前的流量，到达空囊后排油截止。',
-            '保存的多变指数视为恒定。真实供回油能力、温度变化、阀切换、管路压降及冲击另验。',
+            '保存的多变指数视为恒定。真实供回油能力、温度变化、阀切换、附加管路与冲击另验。',
           ]
         : ['瞬时流量对应本行指定油量。充放油时间需另填目标油量，循环温度另验。']),
     ];
@@ -35,7 +54,7 @@ const fail = (message: string): Result<never> => ({
   diagnostics: [diagnostic('DUTY_UNSUPPORTED', '/duty/supply-storage', message)],
 });
 
-type StepWriter = (
+export type StepWriter = (
   id: string,
   label: string,
   formula: string,
@@ -47,7 +66,7 @@ type StepWriter = (
 const ideal = (paths: DutyPhasePaths, from: string, to: string) =>
   paths.uniquePath(from, to)?.every((arc) => arc.ideal) === true;
 
-// Integrate R·dV/|pH−pg| using log|pH−pg| as the coordinate. This removes the
+// Integrate dV/|q| using log|pSource−pg| as the coordinate. This removes the
 // equilibrium pole from the integrand while retaining the growing time interval.
 function transferDuration(
   startGap: number,
@@ -56,7 +75,7 @@ function transferDuration(
   precharge: number,
   total: number,
   exponent: number,
-  resistance: number,
+  rate: (gap: number) => number,
 ): number | undefined {
   const first = Math.log(Math.abs(startGap));
   const last = Math.log(Math.abs(endGap));
@@ -65,11 +84,12 @@ function transferDuration(
   for (let panels = 8; panels <= 4096; panels *= 2) {
     let sum = 0;
     for (let i = 0; i <= panels; i++) {
-      const gasPa = sourcePa - sign * Math.exp(first + ((last - first) * i) / panels);
+      const gap = sign * Math.exp(first + ((last - first) * i) / panels);
+      const gasPa = sourcePa - gap;
       const gasVolume = total * (precharge / gasPa) ** (1 / exponent);
-      sum += (i === 0 || i === panels ? 1 : i % 2 === 0 ? 2 : 4) * (gasVolume / gasPa);
+      sum += (i === 0 || i === panels ? 1 : i % 2 === 0 ? 2 : 4) * (gasVolume / gasPa) * Math.abs(gap / rate(gap));
     }
-    const seconds = (resistance * Math.abs(last - first) * sum) / (3 * panels * exponent);
+    const seconds = (Math.abs(last - first) * sum) / (3 * panels * exponent);
     if (seconds > 0 && Number.isFinite(seconds) && Math.abs(seconds - previous) <= seconds * 1e-8) return seconds;
     previous = seconds;
   }
@@ -134,22 +154,52 @@ function storagePoint(
   let summary = '气体绝压 ' + mp(absolute) + '，油量 ' + number(oil * 1000) + ' L，储能 ' + number(energy) + ' J。';
   let satisfied = true;
   let sourcePa: number | undefined;
+  let rate = (gap: number) => gap / resistance;
+  let sealed = false;
+  let checkRate: (q: number) => Result<unknown> = () => ({ ok: true, value: true });
+  const pending = (reason: string): Result<DutyBoundaryDemand> => ({
+    ok: true,
+    value: {
+      name: phase.name,
+      boundaryAssessment: { summary: summary + ' ' + reason, satisfied: false, transfer: 'pending' },
+    },
+  });
   if (source) {
-    const paths = dutyPhasePaths(project, phase, false);
+    const line = storageLine(project, phase, source, storage, resistance);
+    if (!line.ok) return pending(line.diagnostics.map((d) => d.message).join('；'));
     const pressure = source.parameters.hydraulic?.pressurePa;
-    if (
-      !paths.ok ||
-      pressure === undefined ||
-      pressure + offset <= 0 ||
-      !ideal(paths.value, source.id + ':P', storage.id + ':H')
-    )
-      return fail(phase.name + '：恒压源 P 须通过唯一理想通路接蓄能器 H。');
+    if (pressure === undefined || pressure + offset <= 0) return pending('边界压力或绝压基准待核。');
     sourcePa = pressure + offset;
-    const rawFlow = (sourcePa - absolute) / resistance;
+    rate = line.value.rate;
+    sealed = line.value.sealed;
+    checkRate = line.value.check;
+    summary += line.value.label + '。';
+    const rawFlow = rate(sourcePa - absolute);
     const flow = oil === 0 ? Math.max(0, rawFlow) : rawFlow;
     const beyond = flow > 0 && gas <= total * minimum + 1e-14 * total;
     satisfied = !beyond;
-    add('terminal', 'H 口边界表压', '保存恒压源压力', pressure, 'Pa', 1e-6, 'MPa');
+    const domain = checkRate(flow);
+    if (!domain.ok) return pending(domain.diagnostics.map((d) => d.message).join('；'));
+    add('source-pressure', '压力边界表压', '保存边界压力', pressure, 'Pa', 1e-6, 'MPa');
+    if (!sealed)
+      add(
+        'line-drop',
+        '起点串联通路压降',
+        '|p边界 − pH|',
+        oil === 0 && rawFlow < 0 ? 0 : Math.abs(sourcePa - absolute - resistance * flow),
+        'Pa',
+        1e-6,
+        'MPa',
+      );
+    add(
+      'terminal',
+      'H 口边界表压',
+      'pg,abs − p参考 + RH × qH（空囊截止时取连接边界）',
+      oil === 0 && rawFlow < 0 && !sealed ? pressure : absolute - offset + resistance * flow,
+      'Pa',
+      1e-6,
+      'MPa',
+    );
     add('reference', '工程表压零点的绝压', '工程压力基准', offset, 'Pa', 1e-6, 'MPa');
     add('port-resistance', '蓄能器口部阻力', '保存口部阻力', resistance, 'Pa·s/m³');
     if (beyond) summary += '已到最小气体容积边界，继续充油待核。';
@@ -181,28 +231,23 @@ function storagePoint(
       const startGap = sourcePa - absolute;
       const endGap = sourcePa - targetPa;
       const gapTolerance = 32 * Number.EPSILON * Math.max(sourcePa, absolute, targetPa);
+      if (sealed) return outcome('blocked', '隔离支路零流量，按理想密封保压，目标油量不可达。');
+      const domain = checkRate(rate(endGap));
+      if (!domain.ok) return outcome('pending', domain.diagnostics.map((d) => d.message).join('；'));
       if (direction * startGap <= gapTolerance)
         return outcome('blocked', '起始压差不足以沿目标方向充放油，目标不可达。');
       if (Math.abs(endGap) <= gapTolerance)
         return outcome('blocked', '目标油量对应平衡压力，只能渐近接近，无有限到达时间。');
       if (direction * endGap < 0) return outcome('blocked', '目标越过平衡油量，压差先降为零，目标不可达。');
-      const duration = transferDuration(startGap, endGap, sourcePa, precharge, total, exponent, resistance);
+      const duration = transferDuration(startGap, endGap, sourcePa, precharge, total, exponent, rate);
       if (duration === undefined) return outcome('pending', '时间积分未通过数值收敛校核，充放油时间待核。');
       seconds = duration;
-      add(
-        'target-rate',
-        '到达目标前的 H 口流量',
-        'qH = (pH,abs − pg,目标) / RH',
-        endGap / resistance,
-        'm³/s',
-        60000,
-        'L/min',
-      );
+      add('target-rate', '到达目标前的 H 口流量', 'qH = (pH,abs − pg,目标) / RH', rate(endGap), 'm³/s', 60000, 'L/min');
     }
     add('target-absolute', '目标气体绝压', 'pg = p0 × (V0 / Vg)^n', targetPa, 'Pa', 1e-6, 'MPa');
     add('oil-change', '油量变化（正为充油）', 'ΔVo = Vo,目标 − Vo,起始', oilChange, 'm³', 1000, 'L');
     add('energy-change', '气体压缩功变化', 'ΔE = E目标 − E起始', gasEnergy(targetGas) - energy, 'J');
-    add('duration', '到达目标油量时间', 't = ∫ RH / |pH,abs − pg(Vo)| × |dVo|', seconds, 's');
+    add('duration', '到达目标油量时间', 't = ∫ |dVo / qH(Vo)|，按实际串联通路逐点联立', seconds, 's');
     return outcome(
       'timed',
       oilChange === 0
@@ -395,26 +440,39 @@ export function checkBoundaryDuty(
   const [tank] = parts('tank');
   const [cylinder] = parts('cylinder');
   const [intensifier] = parts('pressure-intensifier');
-  const selected = source ?? storage;
+  const mode = sourceControlMode(project, request);
+  if (mode && request.phases.some((p) => p.pumpStorage || p.resetStudy || p.loadStudy || p.transient))
+    return fail('储能与自动动作须单独核算，不能与其他供源控制混用。');
+  const pump = parts('pump')[0];
+  const selected = request.phases.some((p) => p.pumpStorage) ? pump : (source ?? storage ?? intensifier);
   const scope = storage ? [source, storage] : [source, cylinder, valve, tank, intensifier];
   if (
-    !selected ||
-    request.pumpId !== selected.id ||
-    components.length !== scope.filter(Boolean).length ||
-    connections.some((edge) => edge.kind !== 'ideal')
+    !mode &&
+    !request.phases.every((p) => p.loadStudy || p.transient || p.service) &&
+    (!selected ||
+      request.pumpId !== selected.id ||
+      (!storage &&
+        !request.phases.every((p) => p.resetStudy) &&
+        (components.length !== scope.filter(Boolean).length || connections.some((edge) => edge.kind !== 'ideal'))) ||
+      (storage && !source && !tank && components.length !== 1))
   )
     return fail('限独立恒压供油、单级增压回路或单只蓄能器储能状态，采用唯一理想连接。');
   const phases: DutyBoundaryDemand[] = [];
   const steps: CalculationStep[] = [];
   for (const [index, phase] of request.phases.entries()) {
     if (
-      phase.flowSplit ||
-      phase.pumpCommandPercent !== undefined ||
-      phase.dividerEnd ||
-      phase.shutoffs?.length ||
-      phase.actions.some(
-        (action) => action.positionM !== undefined || action.rotaryAngleRad !== undefined || action.motorSetting,
-      )
+      !mode &&
+      (phase.flowSplit ||
+        phase.pumpCommandPercent !== undefined ||
+        phase.dividerEnd ||
+        (phase.shutoffs?.length && (!storage || source || pump)) ||
+        phase.filterBypass ||
+        phase.pumpPressureControl ||
+        phase.loadSenseMarginPa !== undefined ||
+        (phase.switchPrevious !== undefined && !phase.pumpStorage) ||
+        phase.actions.some(
+          (action) => action.positionM !== undefined || action.rotaryAngleRad !== undefined || action.motorSetting,
+        ))
     )
       return fail(phase.name + '：本边界不支持混合工况指令。');
     const add: StepWriter = (id, label, formula, value, unit, scale = 1, display = unit) =>
@@ -429,11 +487,23 @@ export function checkBoundaryDuty(
         unit,
         display: { unit: display, value: { kind: 'known', value: value * scale }, conversion: '显示值=SI值×' + scale },
       });
-    const point = storage
-      ? storagePoint(project, phase, storage, source, add)
-      : source && cylinder && valve && tank && phase.accumulatorOilVolumeM3 === undefined
-        ? actuatorPoint(project, phase, source, cylinder, valve, tank, intensifier, add)
-        : fail(phase.name + '：缺少恒压源、普通双作用缸、四通阀或油箱。');
+    const point = phase.service
+      ? servicePoint(project, phase, phase.service, add)
+      : phase.transient
+        ? transientPoint(project, request, phase, add)
+        : phase.loadStudy
+          ? loadStudyPoint(project, request, phase, add)
+          : mode
+            ? sourceControlPoint(project, request, phase, mode, add)
+            : phase.pumpStorage
+              ? pumpStoragePoint(project, request, phase, add)
+              : phase.resetStudy
+                ? resetPoint(project, phase, add)
+                : storage
+                  ? storagePoint(project, phase, storage, source ?? tank, add)
+                  : source && cylinder && valve && tank && phase.accumulatorOilVolumeM3 === undefined
+                    ? actuatorPoint(project, phase, source, cylinder, valve, tank, intensifier, add)
+                    : fail(phase.name + '：缺少恒压源、普通双作用缸、四通阀或油箱。');
     if (!point.ok) return point;
     phases.push(point.value);
   }
@@ -452,13 +522,28 @@ export function checkBoundaryDuty(
         format: 'HydraulicLearningCalculation',
         version: 1,
         kind: 'preliminary',
-        title: '供压、储能与增压工况',
+        title: request.phases.some((p) => p.service)
+          ? '标定专项核算'
+          : request.phases.some((p) => p.transient)
+            ? '瞬态峰值与事件核算'
+            : request.phases.some((p) => p.loadStudy)
+              ? '负载功率方向与吸油低压'
+              : (mode ?? '供压、储能与增压工况'),
         document: project,
         identity: null,
         context: null,
         steps,
-        dutyConditions: boundaryDutyConditions(project, request),
-        assumptions: ['工况输入采用工程压力基准，蓄能器气体换算为绝压。', JSON.stringify(request.phases)],
+        dutyConditions: mode ? sourceControlConditions(mode) : boundaryDutyConditions(project, request),
+        assumptions: [
+          ...(request.phases.some((p) => p.service)
+            ? boundaryDutyConditions(project, request)
+            : request.phases.some((p) => p.transient)
+              ? transientConditions(project)
+              : mode
+                ? sourceControlConditions(mode)
+                : ['工况输入采用工程压力基准，蓄能器气体换算为绝压。']),
+          JSON.stringify(request.phases),
+        ],
       },
     }),
   };

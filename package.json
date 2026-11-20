@@ -16,7 +16,7 @@
     "build:model": "node tools/build/build-model.mjs",
     "check:architecture": "node tools/build/check-source-quality.mjs",
     "check:integration": "node tools/build/check-network-integration.mjs",
-    "test": "npm run build && node --test tests/model/*.test.mjs HydraulicWorkbench_v1.0/tests/engine.test.js",
+    "test": "npm run build && node --test tests/model/*.test.mjs tests/application/frame-table-v14.test.mjs HydraulicWorkbench_v1.0/tests/engine.test.js",
     "start:advanced": "node tools/build/start.mjs --advanced",
     "start:teaching": "node tools/build/start.mjs --teaching"
   },

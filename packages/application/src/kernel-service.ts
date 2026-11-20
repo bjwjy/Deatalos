@@ -6,6 +6,7 @@ import {
   type NetworkIdentity,
   type Result,
 } from '@hyd/domain';
+import { readCylinderCondition, type CylinderCondition } from './network-cylinder-query.js';
 import type { MappingOptions } from '@hyd/engine';
 import { legacyNetworkRecordCapacity, networkRecordMaximum, type RecordSelection } from './network-records.js';
 interface RequestEnvelope {
@@ -24,7 +25,13 @@ export type KernelServiceRequest =
       readonly physicsRevision: number;
     })
   | (ActiveRequest & { readonly version: 1 | 2; readonly action: 'start'; readonly speed: number })
-  | (ActiveRequest & { readonly version: 2; readonly action: 'start'; readonly speed: number; readonly ticks: number })
+  | (ActiveRequest & {
+      readonly version: 2;
+      readonly action: 'start';
+      readonly speed: number;
+      readonly ticks: number;
+      readonly condition?: CylinderCondition;
+    })
   | (ActiveRequest & {
       readonly version: 1 | 2;
       readonly action: 'control';
@@ -44,12 +51,14 @@ export type KernelServiceRequest =
       readonly action: 'sequence-start';
       readonly project: unknown;
       readonly ticks?: number;
+      readonly condition?: CylinderCondition;
     })
   | (ActiveRequest & {
       readonly version: 2;
       readonly action: 'sequence-resume';
       readonly sequenceRunId: string;
       readonly ticks?: number;
+      readonly condition?: CylinderCondition;
     })
   | (ActiveRequest & { readonly version: 2; readonly action: 'sequence-stop'; readonly sequenceRunId: string });
 
@@ -78,6 +87,7 @@ export function parseKernelServiceRequest(input: unknown): Result<KernelServiceR
       'sequenceRunId',
       'view',
       'ticks',
+      'condition',
     ]);
   if (o.version !== 1 && o.version !== 2)
     r.fail('VERSION_UNSUPPORTED', '/version', '仅支持显式v1兼容请求与v2分页请求。');
@@ -125,7 +135,9 @@ export function parseKernelServiceRequest(input: unknown): Result<KernelServiceR
     ...(action === 'sequence-start' ? ['project'] : []),
     ...(action === 'sequence-resume' || action === 'sequence-stop' || action === 'control' ? ['sequenceRunId'] : []),
     ...(action === 'start' ? ['speed'] : []),
-    ...(action === 'start' || action === 'sequence-start' || action === 'sequence-resume' ? ['ticks'] : []),
+    ...(action === 'start' || action === 'sequence-start' || action === 'sequence-resume'
+      ? ['ticks', 'condition']
+      : []),
     ...(action === 'records' || action === 'control-records' ? ['selection'] : []),
     ...(action === 'state' && o.version === 2 ? ['view'] : []),
   ]);
@@ -235,13 +247,15 @@ export function parseKernelServiceRequest(input: unknown): Result<KernelServiceR
     if (!Number.isSafeInteger(ticks)) r.fail('CLOCK_INVALID', '/ticks', '有限运行步数必须为1至10000的整数。');
     if (action === 'start' && speed !== 1) r.fail('CLOCK_INVALID', '/speed', '有限运行仅使用固定步长和1倍速。');
   }
+  const condition = o.condition === undefined ? {} : { condition: readCylinderCondition(r, o.condition, '/condition') };
+  if (o.condition !== undefined && ticks === undefined) r.fail('CLOCK_INVALID', '/ticks', '条件运行须指定最大步数。');
   switch (action) {
     case 'start':
       return speed === undefined
         ? incomplete()
         : ticks === undefined
           ? r.finish({ ...active, action, speed })
-          : r.finish({ ...active, version: 2, action, speed, ticks });
+          : r.finish({ ...active, version: 2, action, speed, ticks, ...condition });
     case 'control':
       return r.finish({
         ...active,
@@ -258,13 +272,21 @@ export function parseKernelServiceRequest(input: unknown): Result<KernelServiceR
     case 'pause-bounded':
       return r.finish({ ...active, version: 2, action });
     case 'sequence-start':
-      return r.finish({ ...active, version: 2, action, project: o.project, ...(ticks === undefined ? {} : { ticks }) });
+      return r.finish({
+        ...active,
+        version: 2,
+        action,
+        project: o.project,
+        ...condition,
+        ...(ticks === undefined ? {} : { ticks }),
+      });
     case 'sequence-resume':
       return r.finish({
         ...active,
         version: 2,
         action,
         sequenceRunId: r.id(o.sequenceRunId, '/sequenceRunId'),
+        ...condition,
         ...(ticks === undefined ? {} : { ticks }),
       });
     case 'sequence-stop':

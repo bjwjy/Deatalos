@@ -590,6 +590,17 @@ export function compileHopsan(input: unknown, options: MappingOptions): Result<M
     options.junctionPolicy === 'tlm-limit'
       ? couplePilotSeries(graph, components, terminals, options.initialPressurePa + offset)
       : undefined;
+  // A direct pump feed can pass through the intensifier bypass at full flow.
+  // The outlet storage's own conductance does not include that supply.
+  const intensifierFeedFlow = new Map<string, number>();
+  for (const net of pumpDeliveryNets) {
+    const feed = net.terminals
+      .filter((p) => p.kind === 'component' && p.portId === 'P' && pumpIds.has(p.ownerId))
+      .reduce((sum, p) => sum + dp * conductance(p), 0);
+    for (const p of net.terminals)
+      if (p.kind === 'component' && p.portId === 'IN' && componentTypes.get(p.ownerId) === 'pressure-intensifier')
+        intensifierFeedFlow.set(p.ownerId, feed);
+  }
   for (const net of graph.nets) {
     const series = pilotSeries?.get(net.id);
     if (series) {
@@ -766,7 +777,11 @@ export function compileHopsan(input: unknown, options: MappingOptions): Result<M
         if (c.t?.ref && cs[0]) {
           if (options.junctionPolicy !== 'tlm-limit')
             return failure('MAPPING_POLICY_REQUIRED', '/mapping', '多个C元件需要有压力误差预算的约束桥。');
-          const qBound = Math.max(g * dp * 2, 1e-6),
+          const outletSupply = cs.reduce(
+            (sum, { p }) => sum + (p.portId === 'H' ? (intensifierFeedFlow.get(p.ownerId) ?? 0) : 0),
+            0,
+          );
+          const qBound = Math.max(g * dp * 2, outletSupply, 1e-6),
             resistance = options.constraintPressureTolerancePa / qBound;
           const id = add(`${netId}_bridge${i}`, 'HydraulicLaminarOrifice', { Kc: 1 / resistance });
           const p1 = { component: id, port: 'P1' },

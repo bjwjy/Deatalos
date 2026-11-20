@@ -52,7 +52,8 @@ export function arrangementOrientations(
   function choices(p: NetworkPlacement): Proposal[] {
     // The gauge has an upright face and distinct A/B taps. A shorter pipe
     // alone should not turn its dial or exchange the visual tap positions.
-    if (components.get(p.componentId)?.typeId === 'differential-pressure-gauge') return [];
+    const type = components.get(p.componentId)?.typeId;
+    if (type === 'tank' || type === 'differential-pressure-gauge') return [];
     const baseline = cost(p),
       options: Proposal[] = [];
     const { rotation: oldRotation, mirrored: oldMirror, ...rest } = p;

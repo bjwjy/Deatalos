@@ -4,6 +4,8 @@ import {
   isNetworkActuatorType,
   networkComponentPresentationBounds,
   type NetworkProject,
+  type NetworkComponent,
+  type NetworkPlacement,
   type NetworkEndpoint,
   type Result,
 } from '@hyd/domain';
@@ -22,14 +24,15 @@ const fail = (message: string): Result<never> => ({
   ok: false,
   diagnostics: [diagnostic('LAYOUT_UNSUPPORTED', '/layoutOperation', message)],
 });
+function annotationBox(c: NetworkComponent, p: NetworkPlacement) {
+  const b = required(networkComponentPresentationBounds(c, p) ?? undefined);
+  const y = p.y + Math.max(45, b.bottom - p.y + 24);
+  const width = [...c.label].reduce((sum, ch) => sum + (ch.charCodeAt(0) > 255 ? 16 : 9), 0) + 8;
+  return { id: c.id, left: p.x - width / 2, right: p.x + width / 2, top: y - 16, bottom: y + 5 };
+}
 export function annotationBoxes(project: NetworkProject) {
-  return project.layout.components.map((p) => {
-    const c = required(project.design.components.find((c) => c.id === p.componentId));
-    const b = required(networkComponentPresentationBounds(c, p) ?? undefined);
-    const y = p.y + Math.max(45, b.bottom - p.y + 24);
-    const width = [...c.label].reduce((sum, ch) => sum + (ch.charCodeAt(0) > 255 ? 16 : 9), 0) + 8;
-    return { id: c.id, left: p.x - width / 2, right: p.x + width / 2, top: y - 16, bottom: y + 5 };
-  });
+  const components = new Map(project.design.components.map((c) => [c.id, c]));
+  return project.layout.components.map((p) => annotationBox(required(components.get(p.componentId)), p));
 }
 const workComponents = new Set(['throttle', 'one-way-throttle', 'volume', 'check-valve']);
 
@@ -188,6 +191,7 @@ export function structuredBranchLayouts(
       if (!p || (p.rotation !== undefined && p.rotation !== 0)) return { ok: true, value: [] };
     }
   const types = new Map(project.design.components.map((c) => [c.id, c.typeId]));
+  const components = new Map(project.design.components.map((c) => [c.id, c]));
   const layouts: LayoutCandidate[] = [];
   for (const gap of [24, 40, 64])
     for (const side of [-1, 1]) {
@@ -200,7 +204,7 @@ export function structuredBranchLayouts(
         },
       });
       const box = (id: string) => required(obstacles(current()).find((b) => b.id === id));
-      const name = (id: string) => required(annotationBoxes(current()).find((b) => b.id === id));
+      const name = (id: string) => annotationBox(required(components.get(id)), required(placements.get(id)));
       const port = (id: string, portId: string) =>
         required(position(current(), { kind: 'port', componentId: id, portId }) ?? undefined);
       const workCenter = (id: string) => {

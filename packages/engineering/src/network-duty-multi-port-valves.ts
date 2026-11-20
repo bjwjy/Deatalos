@@ -43,6 +43,7 @@ const pipeSeriesTotal = [
 
 interface ValveInput {
   readonly component: NetworkComponent;
+  readonly pilotPartner?: NetworkComponent;
   readonly phaseName: string;
   readonly phaseIndex: number;
   readonly pumpId: string;
@@ -98,9 +99,9 @@ export function estimateDutyMultiPortValve(
   const returnFilterDropPa = input.returnFilter?.dropPa ?? 0;
   const baseReturnPa = input.baseReturnPa + returnFilterDropPa;
   const label = input.phaseName + ' / ' + (component.label || component.id);
-  const fail = (reason: string): Result<never> => ({
+  const fail = (reason: string, code = 'DUTY_UNSUPPORTED'): Result<never> => ({
     ok: false,
-    diagnostics: [diagnostic('DUTY_UNSUPPORTED', '/duty/multi-port-valve', `${label} [${component.id}]：${reason}`)],
+    diagnostics: [diagnostic(code, '/duty/multi-port-valve', `${label} [${component.id}]：${reason}`)],
   });
   const port = (name: string) => component.id + ':' + name;
   const pump = input.pumpId + ':P',
@@ -172,6 +173,76 @@ export function estimateDutyMultiPortValve(
     return { ok: true, value: { supplyDropPa, returnPressurePa, returnPipeDropPa, pumpFlow } };
   };
   const flowText = (q: number) => Number((q * 60000).toPrecision(7));
+  if (input.pilotPartner) {
+    const supply = onFeed ? component : input.pilotPartner;
+    const exhaust = onFeed ? input.pilotPartner : component;
+    const supplyArc = feed.find((arc) => arc.component?.id === supply.id);
+    const exhaustArc = drain.find((arc) => arc.component?.id === exhaust.id);
+    if (
+      supplyArc?.from !== supply.id + ':A' ||
+      exhaustArc?.from !== exhaust.id + ':B' ||
+      !paths.idealReachable(supply.id + ':B', inlet) ||
+      !paths.idealReachable(exhaust.id + ':B', outlet) ||
+      !paths.idealReachable(supply.id + ':X', exhaust.id + ':A') ||
+      !paths.idealReachable(exhaust.id + ':X', supply.id + ':A')
+    )
+      return fail('双阀 B 口须各接一缸腔，两条 X 先导线须分别接对侧阀的 A 口。');
+    for (const valve of [supply, exhaust]) {
+      if (valve.definition.id === 'teaching:pilot-check' && !paths.idealReachable(valve.id + ':Y', tank))
+        return fail(valve.id + ' 的外泄 Y 口须经理想油路直回同一油箱。');
+    }
+    if (input.actuatorEfficiency !== 1 || baseReturnPa < tankPressurePa)
+      return fail('双阀交叉先导要求容积效率为 1，排油阀 A 口基础背压须不低于油箱压力。');
+    const pressureDrop = (valve: NetworkComponent, flow: number) => {
+      const params = valve.parameters.hydraulic;
+      if (
+        !params?.flowCoefficient ||
+        !params.maximumAreaM2 ||
+        params.openingDifferentialPa === undefined ||
+        !params.pilotRatio
+      )
+        return undefined;
+      return {
+        loss: (density / 2) * (flow / (params.flowCoefficient * params.maximumAreaM2)) ** 2,
+        crack: params.openingDifferentialPa,
+        ratio: params.pilotRatio,
+      };
+    };
+    const feedValve = pressureDrop(supply, inletFlow),
+      drainValve = pressureDrop(exhaust, outletFlow);
+    if (!feedValve || !drainValve) return fail('双阀须分别给出有效面积、流量系数、先导比和开启压差。');
+    const feedDrop = feedValve.crack + feedValve.loss;
+    const chamberOut = baseReturnPa + drainValve.loss;
+    const chamberIn = chamberPressure(chamberOut);
+    const signal = chamberIn + feedDrop;
+    const reference = exhaust.definition.id === 'teaching:pilot-check' ? tankPressurePa : baseReturnPa;
+    const threshold = reference + (chamberOut - reference + drainValve.crack) / drainValve.ratio;
+    const margin = signal - threshold;
+    if (!(margin > 0))
+      return fail(
+        exhaust.id +
+          ' 排油阀锁止，目标点不能维持解锁。X 口 ' +
+          (signal / 1e6).toPrecision(6) +
+          ' MPa，开启门槛 ' +
+          (threshold / 1e6).toPrecision(6) +
+          ' MPa，先导裕量 ' +
+          (margin / 1000).toPrecision(6) +
+          ' kPa。',
+        'DUTY_TARGET_BLOCKED',
+      );
+    const result = finish(feedDrop, chamberOut);
+    if (!result.ok) return result;
+    step('pair-in-flow', supply.id + ' 自由方向 A→B 进油', inletFlow, 'm³/s');
+    step('pair-in-drop', supply.id + ' 自由通流压降', feedDrop, 'Pa');
+    step('pair-in-chamber', supply.id + ' 进油腔压力', chamberIn, 'Pa');
+    step('pair-out-flow', exhaust.id + ' 解锁 B→A 排油', outletFlow, 'm³/s');
+    step('pair-out-drop', exhaust.id + ' 解锁通流压降', drainValve.loss, 'Pa');
+    step('pair-out-chamber', exhaust.id + ' 排油腔背压', chamberOut, 'Pa');
+    step('pair-signal', exhaust.id + ' X 口压力（对侧 A 口）', signal, 'Pa');
+    step('pair-threshold', exhaust.id + ' 维持解锁门槛', threshold, 'Pa');
+    step('pair-margin', exhaust.id + ' 稳态解锁裕量', margin, 'Pa');
+    return result;
+  }
   if (component.typeId === 'pilot-check') {
     const external = component.definition.id === 'teaching:pilot-check';
     if (

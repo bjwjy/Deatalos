@@ -39,6 +39,12 @@ export interface CalculationRecord {
   readonly dutyGroups?: readonly DutyGroupCoverage[];
   readonly dutyCombined?: CombinedDutyCoverage;
   readonly dutyConditions?: readonly string[];
+  readonly cavityWindow?: {
+    readonly inletRows: readonly (readonly string[])[];
+    readonly fromS: number;
+    readonly toS: number;
+    readonly rows: readonly (readonly string[])[];
+  };
 }
 export function calculationSubstitution(inputs: readonly CalculationInput[]): string {
   return inputs

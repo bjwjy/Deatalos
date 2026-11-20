@@ -13,6 +13,7 @@ import {
   type Result,
 } from '@hyd/domain';
 import type { NetworkSaveCapture } from './network-draft.js';
+import { readCylinderCondition, type CylinderStop } from './network-cylinder-query.js';
 import type { KernelServiceRequest } from './kernel-service.js';
 import { parseNetworkArtifact, type NetworkArtifact } from './formal-export.js';
 import { readNetworkRecord, sameNetworkIdentity, type NetworkRecord } from './network-records.js';
@@ -20,6 +21,7 @@ import { readNetworkFlowRegulators, type NetworkFlowRegulatorView } from './netw
 
 /** Small renderer status DTO. Record pages are independently parsed at export. */
 export interface NetworkRuntimeView {
+  readonly conditionRun?: CylinderStop;
   readonly flowRegulators?: readonly NetworkFlowRegulatorView[];
   readonly sequence?: SequenceRunView | null;
   readonly controllers?: readonly (SequenceRunView & { readonly componentId: string; readonly label: string })[];
@@ -233,6 +235,7 @@ function readNetworkRuntimeView(input: unknown, knownDocument?: NetworkProject):
       'record',
       'diagnostics',
       'clock',
+      'conditionRun',
       'samplesTruncated',
       'samplesDropped',
       'quality',
@@ -290,7 +293,36 @@ function readNetworkRuntimeView(input: unknown, knownDocument?: NetworkProject):
     'maxStepsPerPulse',
     'nativeStepS',
   ]);
+  const stop =
+    o.conditionRun === undefined
+      ? null
+      : r.object(o.conditionRun, '/conditionRun', [
+          'condition',
+          'startTick',
+          'targetTick',
+          'tick',
+          'positionM',
+          'reason',
+        ]);
   return r.finish({
+    ...(stop
+      ? {
+          conditionRun: {
+            condition: readCylinderCondition(r, stop.condition, '/conditionRun/condition'),
+            startTick: integer(r, stop.startTick, '/startTick'),
+            targetTick: integer(r, stop.targetTick, '/targetTick'),
+            tick: integer(r, stop.tick, '/tick'),
+            positionM: r.number(stop.positionM, '/positionM', -1e6, 1e6),
+            reason: choice(
+              r,
+              stop.reason,
+              '/reason',
+              ['running', 'threshold', 'tick-limit', 'interrupted'] as const,
+              'interrupted',
+            ),
+          },
+        }
+      : {}),
     document: document.value,
     flowRegulators:
       o.flowRegulators === undefined ? [] : readNetworkFlowRegulators(r, o.flowRegulators, document.value),

@@ -122,6 +122,7 @@ export function scoreHydraulicTree(
   drawing: HydraulicTreeDrawing,
   geometry: TreeGeometry,
   sharedTerminal?: (point: Point, a: string, b: string) => boolean,
+  conflict?: (point: Point, a: string, b: string) => void,
 ): NetworkRoutingScore {
   const { project, tracks } = drawing,
     lines = visibleLines(project, tracks, geometry);
@@ -144,6 +145,10 @@ export function scoreHydraulicTree(
         const lo = Math.max(Math.min(a.from[along], a.to[along]), Math.min(b.from[along], b.to[along]));
         const hi = Math.min(Math.max(a.from[along], a.to[along]), Math.max(b.from[along], b.to[along]));
         foreignOverlap += Math.max(0, hi - lo);
+        if (hi > lo && conflict) {
+          const mid = (lo + hi) / 2;
+          conflict(av ? { x: a.from.x, y: mid } : { x: mid, y: a.from.y }, a.netId, b.netId);
+        }
         if (hi < lo) continue;
         p = av ? { x: a.from.x, y: lo } : { x: lo, y: a.from.y };
       } else {
@@ -170,7 +175,10 @@ export function scoreHydraulicTree(
     const da = directions(p, a),
       db = directions(p, b);
     if ((da === 'LR' && db === 'DU') || (db === 'LR' && da === 'DU')) crossings++;
-    else foreignTouches++;
+    else {
+      foreignTouches++;
+      conflict?.(p, a, b);
+    }
   }
   const boxes = geometry.obstacles(project),
     labels = annotationBoxes(project);

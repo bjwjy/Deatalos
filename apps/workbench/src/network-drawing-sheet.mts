@@ -1,3 +1,4 @@
+import { sharedDrawingTracks, visibleTrackPath } from './network-shared-tracks.mjs';
 import { networkDrawingScale } from '@hyd/domain';
 import {
   paperDimensions,
@@ -35,15 +36,26 @@ export function titleBlock(
     width: number,
     height: number,
     label?: string,
+    fontSizePt?: number,
   ) => void,
 ): Result<string> {
   const paths: string[] = [],
     texts: string[] = [],
     errors: string[] = [];
   const line = (x1: number, y1: number, x2: number, y2: number) => paths.push(`<path d="M${x1} ${y1}L${x2} ${y2}"/>`);
-  function text(value: string, x: number, y: number, w: number, h: number, key: string, label?: string) {
+  function text(
+    value: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    key: string,
+    label?: string,
+    styleKey = key,
+  ) {
+    const points = template?.fontSizes?.[styleKey];
     if (locateField) {
-      locateField(key, value, x, y, w, h, label);
+      locateField(key, value, x, y, w, h, label, points);
       return;
     }
     if (!value) return;
@@ -53,9 +65,12 @@ export function titleBlock(
     const width = (s: string) =>
       measureText ? measureText(s) : [...s].reduce((n, c) => n + (/[\u0020-\u007e]/.test(c) ? 0.56 : 1), 0);
     const widthUnits = width(value);
-    const singleSize = Math.min(3.5, (w - 1.6) / widthUnits, (h - 1) / 1.12);
-    if (singleSize >= 2.5) chosen = { size: singleSize, lines: [value] };
-    for (let size = 3.5; size >= 2.49; size -= 0.1) {
+    const fixed = typeof points === 'number' ? (points * 25.4) / 72 : undefined;
+    const maximum = fixed ?? 3.5,
+      minimum = fixed ?? 2.5;
+    const singleSize = Math.min(maximum, (w - 1.6) / widthUnits, (h - 1) / 1.12);
+    if (singleSize >= minimum) chosen = { size: singleSize, lines: [value] };
+    for (let size = maximum; size >= minimum - 0.001; size -= 0.1) {
       if (chosen) break;
       const lines: string[] = [];
       let row = '';
@@ -68,13 +83,16 @@ export function titleBlock(
         row += character;
       }
       if (row) lines.push(row);
-      if (lines.length * size * 1.12 <= h - 1) {
+      if (
+        lines.length * size * 1.12 <= h - 1 &&
+        (fixed === undefined || lines.every((row) => width(row) * size <= w - 1.6))
+      ) {
         chosen = { size, lines };
         break;
       }
     }
     if (!chosen) {
-      errors.push(key);
+      errors.push(fixed === undefined ? key : (label ?? key) + '（' + points + ' pt，可调小字号或扩大格子）');
       return;
     }
     const size = chosen.size,
@@ -86,29 +104,44 @@ export function titleBlock(
       ),
     );
   }
-  function cell(key: string, value: string, x: number, y: number, w: number, h: number, label: string) {
-    text(titleCells[key] ?? value, x, y, w, h, key, label);
+  function cell(key: string, value: string, x: number, y: number, w: number, h: number, label: string, styleKey = key) {
+    text(titleCells[key] ?? value, x, y, w, h, key, label, styleKey);
   }
-  if (template) {
+  if (template?.table) {
+    for (const c of template.table) {
+      const x = c.left / 100,
+        y = c.top / 100,
+        w = (c.right - c.left) / 100,
+        h = (c.bottom - c.top) / 100;
+      if (c.left) line(x, y, x, y + h);
+      if (c.top) line(x, y, x + w, y);
+      if (c.field)
+        text(fields[c.field] ?? '', x, y, w, h, c.field, template.fields.find((f) => f.key === c.field)?.label, c.id);
+      else cell('tableText.' + c.id, c.text, x, y, w, h, '固定文字', c.id);
+    }
+  } else if (template) {
     const visible = template.fields.filter((f) => f.visible),
-      rows = Math.ceil(visible.length / 4),
+      columns = template.columns ?? 4,
+      width = 180 / columns,
+      heading = width * (14 / 45),
+      rows = Math.ceil(visible.length / columns),
       height = 56 / rows;
-    for (let x = 45; x < 180; x += 45) line(x, 0, x, 56);
+    for (let x = width; x < 180; x += width) line(x, 0, x, 56);
     for (let y = height; y < 55.99; y += height) line(0, y, 180, y);
     visible.forEach((field, i) => {
-      const x = (i % 4) * 45,
-        y = Math.floor(i / 4) * height;
-      line(x + 14, y, x + 14, y + height);
-      cell('templateHeading.' + field.key, field.label, x, y, 14, height, field.label + '字段名');
-      text(fields[field.key] ?? '', x + 14, y, 31, height, field.key);
+      const x = (i % columns) * width,
+        y = Math.floor(i / columns) * height;
+      line(x + heading, y, x + heading, y + height);
+      cell('templateHeading.' + field.key, field.label, x, y, heading, height, field.label + '字段名');
+      text(fields[field.key] ?? '', x + heading, y, width - heading, height, field.key);
     });
-    for (let i = visible.length; i < rows * 4; i++)
+    for (let i = visible.length; i < rows * columns; i++)
       cell(
         'templateSpare.' + (i - visible.length),
         '',
-        (i % 4) * 45,
+        (i % columns) * width,
         (rows - 1) * height,
-        45,
+        width,
         height,
         '模板空白格 ' + (i - visible.length + 1),
       );
@@ -226,6 +259,7 @@ export function drawingSheet(
   const bounds = projectBounds(parsedProject.value),
     routes = networkDrawingRoutes(parsedProject.value),
     elements: string[] = [];
+  const shared = sharedDrawingTracks(parsedProject.value, routes);
   for (const connection of parsedProject.value.design.connections) {
     const route = routes.get(connection.id);
     if (!route?.ok)
@@ -236,10 +270,13 @@ export function drawingSheet(
       bounds.top = Math.min(bounds.top, p.y - 30);
       bounds.bottom = Math.max(bounds.bottom, p.y + 30);
     }
+    const visible = shared.pieces.get(connection.id);
     elements.push(
-      `<path data-connection-id="${xml(connection.id)}" d="${routePath(route.value)}" fill="none" stroke="black" stroke-width="${connection.kind === 'signal' ? 1.5 : 2}"${connection.kind === 'signal' ? ` stroke-dasharray="${signalDash}"` : ''}/>`,
+      `<path data-connection-id="${xml(connection.id)}" d="${visible ? visibleTrackPath(visible) : routePath(route.value)}" fill="none" stroke="black" stroke-width="${connection.kind === 'signal' ? 1.5 : 2}"${connection.kind === 'signal' ? ` stroke-dasharray="${signalDash}"` : ''}/>`,
     );
   }
+  for (const { point } of shared.junctions)
+    elements.push(`<circle cx="${point.x}" cy="${point.y}" r="4" fill="black"/>`);
   const controls = initialNetworkControls(parsedProject.value);
   for (const c of parsedProject.value.design.components) {
     const p = parsedProject.value.layout.components.find((v) => v.componentId === c.id);

@@ -154,6 +154,7 @@ export function planCombinedNetworkGoal(document: unknown, input: unknown): Resu
       : result('not-feasible', '当前设计的速度、转速或各泵条件有缺口。');
   if (current.hasUnloading)
     return result('pending', '含卸荷切换的接法请先校核当前设计，合流自动选配适用于无卸荷的定量泵。');
+  if (current.hasVariablePump) return result('pending', '变量泵与定量泵合流仅校核给定排量指令，自动选配待核。');
   if (current.hasSupplyPipe) return result('pending', '有损供油母线请先联合校核当前设计，自动选配待核。');
   if (solved.some((phase) => phase.targetWindow.kind === 'incompatible'))
     return result('not-feasible', '存在工况的各执行器没有共同目标母线压力，只调整泵排量无法让各支路同时达标。');

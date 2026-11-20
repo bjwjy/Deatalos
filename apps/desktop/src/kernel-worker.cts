@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { NetworkSimulation as Simulation } from '@hyd/application' with { 'resolution-mode': 'import' };
-import type { KernelServiceRequest } from '@hyd/application' with { 'resolution-mode': 'import' };
+import type { CylinderCondition, KernelServiceRequest } from '@hyd/application' with { 'resolution-mode': 'import' };
 import { HopsanBackend } from './kernel-backend.cjs';
 import { NativeChannel } from './native-channel.cjs';
 import { KernelRunScheduler } from './kernel-run-scheduler.cjs';
@@ -27,16 +27,16 @@ const stopTimer = () => {
   scheduler?.stop();
   runtime?.pause();
 };
-function configureLimit(ticks: number | undefined) {
+function configureLimit(ticks: number | undefined, condition?: CylinderCondition) {
   if (ticks === undefined) {
     boundedTarget = undefined;
-    return { ok: true, value: true };
+    return runtime?.configureCondition(undefined) ?? failed('RUNTIME_NOT_READY', '尚未初始化。');
   }
   const identity = runtime?.identity;
   if (!identity || !Number.isSafeInteger(identity.tick + ticks))
     return failed('CLOCK_INVALID', '有限运行目标步号不可表示，未启动。');
   boundedTarget = { simulationSessionId: identity.simulationSessionId, tick: identity.tick + ticks };
-  return { ok: true, value: true };
+  return runtime?.configureCondition(condition, ticks) ?? failed('RUNTIME_NOT_READY', '尚未初始化。');
 }
 function startTimer(): void {
   if (!runtime) return;
@@ -63,6 +63,7 @@ function openBackend(
   project: unknown,
   mapping: Parameters<typeof HopsanBackend.create>[1],
   expectedResourceDigest?: string,
+  onInitializationProgress?: (percent: number, stage: string) => void,
 ) {
   return HopsanBackend.create(
     project,
@@ -71,6 +72,7 @@ function openBackend(
       resourceRoot: resources ?? '',
       sessionsRoot: sessions ?? '',
       timeoutMs: 5000,
+      ...(onInitializationProgress ? { onInitializationProgress } : {}),
       ...(expectedResourceDigest === undefined ? {} : { expectedResourceDigest }),
     },
     async (launch) => {
@@ -97,7 +99,9 @@ async function handle(input: unknown): Promise<unknown> {
     let candidateBackend: HopsanBackend | null = null;
     let committed = false;
     try {
-      const created = await openBackend(request.project, request.mapping);
+      const created = await openBackend(request.project, request.mapping, undefined, (percent, stage) => {
+        send({ event: 'initialization-progress', percent, stage });
+      });
       if (!created.ok) return created;
       candidateBackend = created.value;
       const store = NetworkSimulation.create(
@@ -187,16 +191,20 @@ async function handle(input: unknown): Promise<unknown> {
   }
   if (request.action === 'sequence-start') {
     stopTimer();
-    const configured = configureLimit(request.ticks);
+    const configured = configureLimit(request.ticks, 'condition' in request ? request.condition : undefined);
     if (!configured.ok) return configured;
+    if ('value' in configured && configured.value)
+      return { ok: true, value: serviceSnapshot(runtime, request.version) };
     outcome = await runtime.startSequence(request.project, randomUUID());
     speed = 1;
     if (runtime.running) startTimer();
   }
   if (request.action === 'sequence-resume') {
     stopTimer();
-    const configured = configureLimit(request.ticks);
+    const configured = configureLimit(request.ticks, 'condition' in request ? request.condition : undefined);
     if (!configured.ok) return configured;
+    if ('value' in configured && configured.value)
+      return { ok: true, value: serviceSnapshot(runtime, request.version) };
     outcome = runtime.resumeSequence(request.sequenceRunId);
     if (runtime.running) startTimer();
   }
@@ -206,8 +214,13 @@ async function handle(input: unknown): Promise<unknown> {
   }
   if (request.action === 'start') {
     stopTimer();
-    const configured = configureLimit('ticks' in request ? request.ticks : undefined);
+    const configured = configureLimit(
+      'ticks' in request ? request.ticks : undefined,
+      'condition' in request ? request.condition : undefined,
+    );
     if (!configured.ok) return configured;
+    if ('value' in configured && configured.value)
+      return { ok: true, value: serviceSnapshot(runtime, request.version) };
     speed = request.speed;
     const started = runtime.start();
     outcome = started;
@@ -233,7 +246,10 @@ async function handle(input: unknown): Promise<unknown> {
     stopTimer();
     outcome = await runtime.dispose();
   }
-  if (outcome && typeof outcome === 'object' && 'ok' in outcome && outcome.ok === false) return outcome;
+  if (outcome && typeof outcome === 'object' && 'ok' in outcome && outcome.ok === false) {
+    if ('condition' in request && request.condition) runtime.pause();
+    return outcome;
+  }
   const snapshot = serviceSnapshot(runtime, request.version);
   return {
     ok: true,

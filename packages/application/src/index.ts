@@ -28,6 +28,8 @@ export type { NetworkExportCapture, NetworkRecordPort } from './network-export.j
 export type { NetworkRecord, NetworkRecordPage, RecordSelection } from './network-records.js';
 export type { KernelPort } from './network-simulation.js';
 export { parseKernelServiceRequest } from './kernel-service.js';
+export { compareCylinders } from './network-cylinder-query.js';
+export type { CylinderCondition, CylinderStop } from './network-cylinder-query.js';
 export type { KernelServiceRequest, KernelServiceCommand } from './kernel-service.js';
 import {
   diagnostic,
@@ -660,6 +662,7 @@ export {
   applyNetworkSizing,
   exportCalculationCsv,
   exportNetworkLearningCsv,
+  capturedCalculationRecord,
 } from './network-sizing.js';
 export type { NetworkSizingPreview } from './network-sizing.js';
 export { NetworkTools, networkToolBase } from './network-tools.js';
@@ -753,7 +756,13 @@ export function createApplication(
 
 export * from './network-editing.js';
 export * from './network-valve-library.js';
-export { parseCurveRequest, reduceCurveSamples, planNetworkCurve, exportCurveSegment } from './network-curve-plan.js';
+export {
+  projectCurveSample,
+  parseCurveRequest,
+  reduceCurveSamples,
+  planNetworkCurve,
+  exportCurveSegment,
+} from './network-curve-plan.js';
 export { parseCurveCapture } from './network-curve-capture.js';
 export type { CurveRequest, CurveSample, CurvePlan, ReductionSeries, Reduction } from './network-curve-plan.js';
 export {
@@ -781,8 +790,15 @@ export type {
   FormalArtifact,
   NetworkArtifact,
 } from './formal-export.js';
-export { parseDrawingTemplate, parseDrawingTemplateLibrary } from './drawing-template.js';
-export type { DrawingTemplate, DrawingTemplateField } from './drawing-template.js';
+export { drawingFrameFromBoxes } from './drawing-frame-boxes.js';
+export {
+  drawingFrameFile,
+  frameBoxLimits,
+  parseDrawingTemplate,
+  parseDrawingTemplateLibrary,
+  parseFrameFile,
+} from './drawing-template.js';
+export type { DrawingTemplate, DrawingTemplateField, DrawingTableCell } from './drawing-template.js';
 
 export { parseOfflineCurve, prepareOfflineCurve } from './offline-curve.js';
 export type { OfflineCurve } from './offline-curve.js';
