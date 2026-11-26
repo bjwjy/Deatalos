@@ -1,6 +1,5 @@
 import path from 'node:path';
 import { stat } from 'node:fs/promises';
-import { encodeNetworkArtifact } from './formal-renderer.cjs';
 import { readFolder, createFolder, writeFolder, archiveFolder } from './network-folder-store.cjs';
 import { atomicWrite, boundedRead, codeOf, digest, fingerprint, targetPath, type AtomicHooks } from './atomic-file.cjs';
 import { writeNewOutput } from './new-output.cjs';
@@ -329,6 +328,7 @@ export class NetworkProjectFiles {
     this.#busy = true;
     ++this.#generation;
     try {
+      const { encodeNetworkArtifact } = await import('./formal-renderer.cjs');
       const bytes = await encodeNetworkArtifact(parsed.value, () => this.#binding === binding);
       if (destination === 'project' && binding.target?.toLowerCase().endsWith('.hydproj')) {
         const target = await archiveFolder(

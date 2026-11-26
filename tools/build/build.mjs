@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, copyFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, copyFile, rm } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { root } from './paths.mjs';
@@ -145,10 +145,9 @@ for (const file of ['probe.html', 'probe.js']) {
 }
 await mkdir(path.join(root, 'apps/desktop/dist/agent'), { recursive: true });
 await (await import('./build-tool-client.mjs')).buildToolClient();
-await copyFile(
-  path.join(root, 'tools/clients/Invoke-HydraulicTool.ps1'),
-  path.join(root, 'apps/desktop/dist/agent/Invoke-HydraulicTool.ps1'),
-);
+// Retire known generated clients from incremental builds.
+for (const name of ['HydraulicTool.exe', 'Invoke-HydraulicTool.ps1'])
+  await rm(path.join(root, 'apps/desktop/dist/agent', name), {force:true});
 if (!process.argv.includes('--no-native')) await (await import('./stage-kernel-e00d.mjs')).stageKernel();
 
 await mkdir(path.join(root, 'apps/desktop/dist/third-party'), { recursive: true });

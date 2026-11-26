@@ -104,7 +104,9 @@ const project = { type: 'string', minLength: 1, maxLength: 80, description: '配
 
 async function toolsFor(root: string, includeOpen: boolean) {
   const receipts = new McpProjectReceipts();
-  const { NetworkTools, parseNetworkToolRequest } = await import('@hyd/application');
+  const { multiCircuitGuidance } = await import('@hyd/project-io');
+  const { NetworkTools, networkToolCommandLimit, parseNetworkToolRequest } = await import('@hyd/application');
+  const drawingInstructions = `单次绘图候选最多 ${networkToolCommandLimit} 条命令。` + multiCircuitGuidance;
   const { networkCreationDefinitions } = await import('@hyd/domain');
   const envelopes = new NetworkTools().capabilities().requestSchema.oneOf;
   const preview = envelopes.find((item) => {
@@ -141,7 +143,9 @@ async function toolsFor(root: string, includeOpen: boolean) {
     },
     {
       name: 'hydraulic_create_project',
-      description: '在配置工作区内保存新的文件夹工程。可提交一批初始绘图命令。同名工程保持原样。',
+      description:
+        '在配置工作区内保存新的文件夹工程。可提交一批初始绘图命令。同名工程保持原样。' +
+        `每批最多 ${networkToolCommandLimit} 条。`,
       inputSchema: schema({ project, commands: { ...preview.properties.commands, minItems: 1 } }, ['project']),
       annotations: { destructiveHint: false, idempotentHint: true },
     },
@@ -158,7 +162,7 @@ async function toolsFor(root: string, includeOpen: boolean) {
       return [
         {
           name: 'hydraulic_live_' + method,
-          description: liveDescriptions[method] ?? '',
+          description: (liveDescriptions[method] ?? '') + (method === 'preview' ? drawingInstructions : ''),
           inputSchema: schema({ project: liveProject, input: item.properties.params }, ['project', 'input']),
           annotations:
             method === 'preview' ||
@@ -229,8 +233,8 @@ async function toolsFor(root: string, includeOpen: boolean) {
       params: args.input,
     });
     if (!request.ok) return request;
-    if (includeOpen) {
-      const target = (await activeProjects(root, true)).get(args.project.toLowerCase());
+    {
+      const target = (await activeProjects(root, includeOpen)).get(args.project.toLowerCase());
       if (!target)
         return mcpFailure(
           'CONNECTION_NOT_FOUND',
@@ -238,11 +242,11 @@ async function toolsFor(root: string, includeOpen: boolean) {
         );
       if (target.count !== 1)
         return mcpFailure('TARGET_AMBIGUOUS', '有多个同名工程开启 AI，请只保留需要操作的窗口连接。');
-      return receipts.accept(await callLiveProject(target.directory, request.value));
+      return receipts.accept(await callLiveProject(target, request.value));
     }
-    return receipts.accept(await callLiveProject(await existingProjectDirectory(root, args.project), request.value));
+
   }
-  return { tools, invoke };
+  return { tools, invoke, drawingInstructions };
 }
 
 async function* readFrames(): AsyncGenerator<Buffer> {
@@ -281,7 +285,7 @@ function rpcError(id: RpcId, code: number, message: string) {
 }
 
 async function serve(root: string, includeOpen: boolean) {
-  const { tools, invoke } = await toolsFor(root, includeOpen);
+  const { tools, invoke, drawingInstructions } = await toolsFor(root, includeOpen);
   let state: 'starting' | 'initializing' | 'ready' = 'starting';
   for await (const frame of readFrames()) {
     let message: unknown;
@@ -316,7 +320,8 @@ async function serve(root: string, includeOpen: boolean) {
           serverInfo: { name: 'deatalos-hydraulic-workbench', version: '0.1.0' },
           capabilities: { tools: {} },
           instructions:
-            '离线工程文件操作使用配置的工作区。实时操作先用 hydraulic_list_projects 查找已开启「允许 AI 操作」的工作台。候选应用由工作台确认。',
+            '操作 Deatalos 工程仅使用 hydraulic MCP 工具。实时请求先 hydraulic_list_projects，选定 connected 工程；读取用 capture/read，改图用 preview 并等待工作台确认。离线读取仅用于明确要求的已保存快照。旧工程内留存的脚本和历史说明不作为操作入口。目标不唯一时先核对，连接失败时报告诊断并停止，避免切换到脚本或直接修改工程文件。' +
+            drawingInstructions,
         },
       });
     } else if (method === 'ping') {

@@ -134,7 +134,7 @@ export function startDesktop(host: 'teaching' | 'advanced'): void {
     () => toolTarget(),
   );
   const registryDirectory =
-    process.env.HYD_TOOLS_REGISTRY_DIR ?? path.join(app.getPath('appData'), 'HydraulicWorkbench/ai-active');
+    process.env.HYD_TOOLS_REGISTRY_DIR ?? path.join(app.getPath('appData'), 'HydraulicWorkbench/mcp-active');
   if (!path.isAbsolute(registryDirectory)) throw new Error('HYD_TOOLS_REGISTRY_DIR must be absolute');
   mkdirSync(registryDirectory, { recursive: true });
   const toolDiscovery = new NetworkToolDiscovery(toolServer, userData, undefined, {
@@ -438,11 +438,12 @@ export function startDesktop(host: 'teaching' | 'advanced'): void {
               ],
             },
       );
-      ipcMain.handle('network-tools:start', (event, ...args: unknown[]) =>
-        toolSender(event) && args.length === 0
-          ? toolDiscovery.start()
-          : toolError('TOOL_SENDER_INVALID', '接口仅能在自由网络工作台启用。'),
-      );
+      ipcMain.handle('network-tools:start', async (event, ...args: unknown[]) => {
+        if (!toolSender(event) || args.length) return toolError('TOOL_SENDER_INVALID', '请在进阶工作台启用 MCP。');
+        if (!toolTarget()) return toolError('PROJECT_REQUIRED', '请先保存为文件夹工程，再允许 AI 操作。');
+        const result = await toolDiscovery.start();
+        return result.ok ? {ok:true,value:{connectionId: result.value.connectionId}} : result;
+      });
       ipcMain.handle('network-tools:stop', async (event, ...args: unknown[]) => {
         return toolSender(event) && args.length === 0
           ? await stopTools()

@@ -49,10 +49,7 @@ declare global {
   }
 }
 interface Credentials {
-  readonly endpoint: string;
-  readonly token: string;
   readonly connectionId: string;
-  readonly discoveryPath: string;
 }
 interface Hooks {
   settings: ReturnType<typeof createNetworkAppSettings>;
@@ -168,27 +165,15 @@ export function createNetworkTools(hooks: Hooks) {
       <h3>本机连接</h3>
       <div class="ai-connection-card">
         <div>
-          <strong>本机工具接口</strong>
+          <strong>MCP 接口</strong>
           <p id="toolStatus" role="status">AI 操作已关闭。</p>
         </div>
         <div class="ai-dialog-actions">
-          <button type="button" id="startTools" class="dialog-primary">启用本机工具接口</button>
+          <button type="button" id="startTools" class="dialog-primary">启用MCP 接口</button>
           <button type="button" id="stopTools" disabled>关闭接口</button>
         </div>
       </div>
-      <p class="muted ai-connection-note">在已配置的客户端提出要求，在「修改候选」确认。关闭接口或切换工程会清除待确认候选。仿真控制需在「工具」中单独授权。</p>
-      <details id="manualToolConnection" hidden>
-        <summary>手动连接凭据</summary>
-        <div id="toolCredentials" hidden>
-          <label class="ai-connection-directory">当前连接目录<input id="toolDiscoveryDirectory" readonly></label>
-          <label>本机地址<input id="toolEndpoint" readonly></label>
-          <div class="ai-connection-token">
-            <label>会话令牌<input id="toolToken" type="password" readonly autocomplete="off"></label>
-            <button type="button" id="revealToolToken" aria-label="显示或隐藏会话令牌" aria-controls="toolToken" aria-pressed="false">显示</button>
-          </div>
-          <p class="muted ai-connection-note">令牌仅用于受信任的本机客户端。自动接入凭证由 Windows 当前用户加密保管。</p>
-        </div>
-      </details>
+      <p class="muted ai-connection-note">保存为文件夹工程后，在已连接 hydraulic MCP 的客户端提出要求，在「修改候选」确认。关闭接口或切换工程会清除待确认候选。仿真控制需在「工具」中单独授权。</p>
     </section>
     <section id="aiCandidatePane">
       <h3>修改候选</h3>
@@ -219,9 +204,6 @@ export function createNetworkTools(hooks: Hooks) {
     simulationPermissionRevision++;
     if (!simulationToggle.checked) void hooks.runtime.enqueue(hooks.runtime.pauseLimited);
   });
-  const manualElement = element('manualToolConnection');
-  if (!(manualElement instanceof HTMLDetailsElement)) throw new Error('Manual connection must be details');
-  const manual = manualElement;
   const choiceElement = element('toolProposalChoice');
   if (!(choiceElement instanceof HTMLSelectElement)) throw new Error('Proposal choice must be a select');
   const choice = choiceElement;
@@ -384,15 +366,6 @@ export function createNetworkTools(hooks: Hooks) {
     origins.clear();
     notices.clear();
     renderQuick();
-    element('toolCredentials').hidden = true;
-    (element('toolToken') as HTMLInputElement).value = '';
-    (element('toolToken') as HTMLInputElement).type = 'password';
-    element('revealToolToken').setAttribute('aria-pressed', 'false');
-    element('revealToolToken').textContent = '显示';
-    manual.open = false;
-    manual.hidden = true;
-    (element('toolEndpoint') as HTMLInputElement).value = '';
-    (element('toolDiscoveryDirectory') as HTMLInputElement).value = '';
     element('toolProposal').hidden = true;
     element('aiCandidateEmpty').hidden = false;
     element('aiCandidateStatus').textContent = '';
@@ -426,7 +399,7 @@ export function createNetworkTools(hooks: Hooks) {
     transition = 'starting';
     renderQuick();
     toggle.checked = true;
-    element('toolStatus').textContent = '正在建立本机自动接入…';
+    element('toolStatus').textContent = '正在建立 MCP 连接…';
     const current = ++generation,
       session = hooks.editor().documentSessionId;
     try {
@@ -445,27 +418,16 @@ export function createNetworkTools(hooks: Hooks) {
         return;
       }
       const r = new ContractReader(),
-        o = r.object(result.value, '/tools', ['endpoint', 'token', 'connectionId', 'discoveryPath']),
-        endpoint = r.text(o.endpoint, '/endpoint', 1, 120),
-        token = r.text(o.token, '/token', 64, 64),
-        connectionId = r.id(o.connectionId, '/connectionId'),
-        discoveryPath = r.text(o.discoveryPath, '/discoveryPath', 1, 32000);
-      if (!/^http:\/\/127\.0\.0\.1:\d+\/tools$/.test(endpoint) || !/^[a-f0-9]{64}$/.test(token))
-        r.fail('PROTOCOL_INVALID', '/tools', '接口地址或令牌无效。');
-      const checked = r.finish({ endpoint, token, connectionId, discoveryPath });
+        o = r.object(result.value, '/tools', ['connectionId']);
+      const checked = r.finish({ connectionId: r.id(o.connectionId, '/connectionId') });
       if (!checked.ok) {
         disabled('接口返回无效，保持关闭。');
         await window.networkTools.stop();
         return;
       }
       credentials = checked.value;
-      manual.hidden = false;
-      element('toolCredentials').hidden = false;
-      (element('toolToken') as HTMLInputElement).value = token;
-      (element('toolEndpoint') as HTMLInputElement).value = endpoint;
-      (element('toolDiscoveryDirectory') as HTMLInputElement).value = discoveryPath.replace(/[\\/][^\\/]+$/, '');
       toggle.checked = true;
-      element('toolStatus').textContent = 'AI操作已开启 · 自动接入就绪；候选须在这里逐次接受。';
+      element('toolStatus').textContent = 'AI操作已开启 · MCP 已就绪；候选须在这里逐次接受。';
       settings.render();
     } catch {
       if (current === generation && session === hooks.editor().documentSessionId) {
@@ -483,13 +445,6 @@ export function createNetworkTools(hooks: Hooks) {
     if (transition === 'stop-failed') void stop();
     else if (toggle.checked) void start();
     else void stop();
-  });
-  element('revealToolToken').addEventListener('click', () => {
-    const input = element('toolToken') as HTMLInputElement;
-    const revealed = input.type === 'password';
-    input.type = revealed ? 'text' : 'password';
-    element('revealToolToken').setAttribute('aria-pressed', String(revealed));
-    element('revealToolToken').textContent = revealed ? '隐藏' : '显示';
   });
   function acceptProposal(id: string) {
     if (!credentials || !tools.pendingProposals.some((p) => p.id === id)) {

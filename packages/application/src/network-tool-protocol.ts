@@ -1,3 +1,4 @@
+import { networkToolCommandLimit } from './network-tool-commands.js';
 import { readCylinderCondition, type CylinderCondition } from './network-cylinder-query.js';
 import { parseCurveRequest, type CurveRequest } from './network-curve-plan.js';
 import {
@@ -655,7 +656,7 @@ export const networkToolRequestSchema = {
       schemaObject({
         base: schemaBase,
         operation: { enum: ['edit', 'undo', 'redo'] },
-        commands: schemaArray(schemaCommand, 30),
+        commands: schemaArray(schemaCommand, networkToolCommandLimit),
       }),
     ),
     ...['proposal', 'cancel', 'apply'].map((method) => schemaEnvelope(method, schemaObject({ proposalId: schemaId }))),
@@ -1149,7 +1150,7 @@ export function parseNetworkToolRequest(input: unknown): Result<NetworkToolReque
     const operation = p.operation;
     if (operation !== 'edit' && operation !== 'undo' && operation !== 'redo')
       return toolFailure('TOOL_METHOD_INVALID', '未知编辑/历史操作。');
-    const commands = r.array(p.commands, '/params/commands', 30);
+    const commands = r.array(p.commands, '/params/commands', networkToolCommandLimit);
     if (operation !== 'edit' && commands.length)
       r.fail('TOOL_COMMAND_INVALID', '/params/commands', '撤销/重做不接受附带编辑。');
     return r.finish({ ...header, method: 'preview', params: { base: readToolBase(r, p.base), operation, commands } });

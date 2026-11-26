@@ -16,7 +16,7 @@ import { topology } from './topology.js';
 import { parameter, type LegacyModel, type Topology } from './legacy-model.js';
 import { solveLegacy } from './solve-legacy.js';
 
-export { connectionGraph } from './network-graph.js';
+export { connectionGraph, networkWiringCheck } from './network-graph.js';
 export { fixedPumpClosureGuard } from './network-pressure-guard.js';
 export { compileHopsan, nativeComponentId, physicalPipeMappingSupport } from './hopsan-map.js';
 export type { MappingOptions, MappingPlan, NativePort } from './hopsan-map.js';

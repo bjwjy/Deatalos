@@ -4,10 +4,10 @@ import { readdir, realpath } from 'node:fs/promises';
 import { boundedRead, codeOf, FileFailure } from './atomic-file.cjs';
 import { callLiveProject, jsonObject, mcpFailure, validProjectName } from './network-mcp-project.cjs';
 
-/** Registry records identify candidates. The native client authenticates every live call. */
+/** Registry records identify candidates. MCP authenticates each live call and checks the target identity. */
 export async function activeProjects(root: string, includeOpen: boolean) {
   const registry =
-    process.env.HYD_TOOLS_REGISTRY_DIR ?? path.join(process.env.APPDATA ?? '', 'HydraulicWorkbench', 'ai-active');
+    process.env.HYD_TOOLS_REGISTRY_DIR ?? path.join(process.env.APPDATA ?? '', 'HydraulicWorkbench', 'mcp-active');
   if (!path.isAbsolute(registry))
     throw new FileFailure('REGISTRY_INVALID', '连接登记目录必须是本机绝对路径，请检查 MCP 登记目录设置。');
   let files: string[];
@@ -22,7 +22,17 @@ export async function activeProjects(root: string, includeOpen: boolean) {
   }
   if (files.length > 128)
     throw new FileFailure('REGISTRY_LIMIT', '活动登记超过 128 条，请关闭不用的工作台并检查残留登记。');
-  const projects = new Map<string, { project: string; directory: string; count: number }>();
+  const projects = new Map<
+    string,
+    {
+      project: string;
+      directory: string;
+      count: number;
+      projectId: string;
+      connectionId: string;
+      discoveryPath: string;
+    }
+  >();
   for (const file of files) {
     let row: unknown;
     try {
@@ -33,10 +43,15 @@ export async function activeProjects(root: string, includeOpen: boolean) {
         throw new FileFailure('REGISTRY_INVALID', '连接登记内容损坏，请在目标工作台重新开启 AI 接入。');
       throw error;
     }
+    // An explicitly shared registry can contain records from an older workbench.
+    if (jsonObject(row) && row.format === 'HydraulicToolsTarget') continue;
     if (
       !jsonObject(row) ||
-      row.format !== 'HydraulicToolsTarget' ||
+      row.format !== 'DeatalosMcpTarget' ||
       row.version !== 1 ||
+      typeof row.discoveryPath !== 'string' ||
+      !path.isAbsolute(row.discoveryPath) ||
+      path.basename(row.discoveryPath) !== 'mcp-connection.json' ||
       typeof row.projectId !== 'string' ||
       typeof row.connectionId !== 'string' ||
       typeof row.directory !== 'string' ||
@@ -50,7 +65,15 @@ export async function activeProjects(root: string, includeOpen: boolean) {
     const key = project.toLowerCase();
     const previous = projects.get(key);
     if (previous) previous.count++;
-    else projects.set(key, { project, directory, count: 1 });
+    else
+      projects.set(key, {
+        project,
+        directory,
+        count: 1,
+        projectId: row.projectId,
+        connectionId: row.connectionId,
+        discoveryPath: row.discoveryPath,
+      });
   }
   return projects;
 }
@@ -70,9 +93,10 @@ export async function listActiveProjects(root: string, includeOpen: boolean, arg
   );
   const page = entries.slice(offset, offset + 4);
   const projects = await Promise.all(
-    page.map(async ({ project, count, directory }) => {
+    page.map(async (target) => {
+      const { project, count } = target;
       if (count > 1) return { project, status: 'ambiguous' };
-      const reply = await callLiveProject(directory, {
+      const reply = await callLiveProject(target, {
         protocol: 'HydraulicTools',
         version: 1,
         requestId: randomUUID(),

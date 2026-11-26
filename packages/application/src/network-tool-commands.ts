@@ -38,6 +38,8 @@ import { planNetworkProbe, type NetworkProbeEdit } from './network-probes.js';
 import { planNetworkSequence } from './network-sequence.js';
 import { planNetworkBranchConnection, type NetworkConnectionAnchor } from './network-branch-connection.js';
 
+export const networkToolCommandLimit = 120;
+
 type NetworkToolProbeEdit =
   | Exclude<NetworkProbeEdit, { readonly kind: 'configure' }>
   | {
@@ -154,7 +156,8 @@ export function planNetworkToolCommands(input: unknown, rawCommands: unknown): R
   const safe = checkJson(rawCommands);
   if (!safe.ok) return safe;
   const r = new ContractReader(),
-    items = r.array(rawCommands, '/commands', 30);
+    items = r.array(rawCommands, '/commands', networkToolCommandLimit);
+  if (r.diagnostics.length) return { ok: false, diagnostics: r.diagnostics };
   if (!items.length) return failure('编辑批至少需要一条命令。');
   let current = document.value;
   const commands: NetworkToolCommand[] = [];

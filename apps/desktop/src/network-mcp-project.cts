@@ -1,4 +1,6 @@
-import { execFile } from 'node:child_process';
+import { request as httpRequest } from 'node:http';
+import { boundedRead } from './atomic-file.cjs';
+import { mcpCredential } from './network-tool-discovery.cjs';
 import { randomUUID } from 'node:crypto';
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -64,42 +66,95 @@ export async function readMcpProject(directory: string) {
   return result.ok ? { ok: true, value: { snapshotKind: 'saved', ...result.value } } : result;
 }
 
-/** Only the bundled Windows client can resolve DPAPI and authenticate a live target. */
-export function callLiveProject(directory: string, request: NetworkToolRequest): Promise<Record<string, unknown>> {
-  const executable = path.join(__dirname, 'agent', 'HydraulicTool.exe');
-  return new Promise((resolve) => {
-    const child = execFile(
-      executable,
-      ['--project', directory],
-      { windowsHide: true, timeout: 15000, maxBuffer: 4 * 1024 * 1024 + 1024 },
-      (error, stdout, stderr) => {
-        try {
-          const reply: unknown = JSON.parse(stdout || stderr);
-          if (
-            jsonObject(reply) &&
-            (reply.ok === false ||
-              (!error &&
-                reply.ok === true &&
-                reply.requestId === request.requestId &&
-                reply.protocol === 'HydraulicTools' &&
-                reply.version === 1))
-          ) {
-            resolve(reply);
-            return;
-          }
-        } catch (cause) {
-          if (!(cause instanceof SyntaxError)) throw cause;
-        }
-        resolve(
-          mcpFailure(
-            error?.code === 'ENOENT' ? 'TOOL_CLIENT_MISSING' : 'LIVE_TOOL_FAILED',
-            '当前工作台调用未完成。请核对源码构建、工程目录和工作台的「允许 AI 操作」。',
-          ),
-        );
-      },
+interface LiveTarget {
+  readonly directory: string;
+  readonly projectId: string;
+  readonly connectionId: string;
+  readonly discoveryPath: string;
+}
+
+export async function callLiveProject(
+  target: LiveTarget,
+  request: NetworkToolRequest,
+): Promise<Record<string, unknown>> {
+  try {
+    const { parseNetworkFolderEntry } = await import('@hyd/project-io');
+    const manifest = parseNetworkFolderEntry(
+      JSON.parse((await boundedRead(path.join(target.directory, '工程.hydproj'), 16384)).toString('utf8')),
     );
-    // The exit callback also handles startup failures and early pipe closure.
-    child.stdin?.on('error', () => child.kill());
-    child.stdin?.end(JSON.stringify(request));
-  });
+    if (
+      !manifest.ok ||
+      manifest.value.projectId !== target.projectId ||
+      (await realpath(target.directory)).toLowerCase() !== path.resolve(target.directory).toLowerCase()
+    )
+      return mcpFailure('TARGET_MISMATCH', '当前文件夹与已授权工程不一致，请重新查找工程。');
+    const record: unknown = JSON.parse((await boundedRead(target.discoveryPath, 16384)).toString('utf8'));
+    if (
+      !jsonObject(record) ||
+      record.format !== 'DeatalosMcpConnection' ||
+      record.version !== 1 ||
+      record.protection !== 'windows-dpapi-current-user' ||
+      record.connectionId !== target.connectionId ||
+      typeof record.protectedToken !== 'string' ||
+      typeof record.endpoint !== 'string' ||
+      !/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}\/mcp\/live$/.test(record.endpoint)
+    )
+      return mcpFailure('TARGET_MISMATCH', 'MCP 连接记录已失效，请在工作台重新开启 AI 操作。');
+    const endpoint = new URL(record.endpoint);
+    const payload = Buffer.from(JSON.stringify(request));
+    if (payload.length > 1048576) return mcpFailure('PAYLOAD_LIMIT', '请求超过 1 MB。');
+    const token = await mcpCredential('unprotect', record.protectedToken);
+    const { directory, projectId, connectionId } = target;
+    const connection = Buffer.from(JSON.stringify({ directory, projectId, connectionId })).toString('base64');
+    return await new Promise<Record<string, unknown>>((resolve, reject) => {
+      const req = httpRequest(
+        endpoint,
+        {
+          method: 'POST',
+          agent: false,
+          signal: AbortSignal.timeout(15000),
+          headers: {
+            authorization: 'Bearer ' + token,
+            'content-type': 'application/json',
+            'content-length': payload.length,
+            'x-hydraulic-target': connection,
+          },
+        },
+        async (res) => {
+          try {
+            const parts: Buffer[] = [];
+            let size = 0;
+            for await (const part of res) {
+              const bytes = Buffer.from(part);
+              size += bytes.length;
+              if (size > 4194304) throw Error('PAYLOAD_LIMIT');
+              parts.push(bytes);
+            }
+            const reply: unknown = JSON.parse(Buffer.concat(parts).toString('utf8'));
+            if (!jsonObject(reply)) throw Error('INVALID_REPLY');
+            if (reply.ok === false && Array.isArray(reply.diagnostics)) {
+              resolve(reply);
+              return;
+            }
+            if (
+              res.statusCode !== 200 ||
+              res.headers['x-hydraulic-connection'] !== connectionId ||
+              reply.ok !== true ||
+              reply.protocol !== 'HydraulicTools' ||
+              reply.version !== 1 ||
+              reply.requestId !== request.requestId
+            )
+              throw Error('INVALID_REPLY');
+            resolve(reply);
+          } catch (error) {
+            reject(error);
+          }
+        },
+      );
+      req.once('error', reject);
+      req.end(payload);
+    });
+  } catch {
+    return mcpFailure('LIVE_TOOL_FAILED', '未取得目标工作台的有效响应。请检查「允许 AI 操作」，再通过 MCP 查找工程。');
+  }
 }

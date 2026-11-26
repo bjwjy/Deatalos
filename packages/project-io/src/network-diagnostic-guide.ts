@@ -49,7 +49,7 @@ export function networkDiagnosticGuide(): string {
 
 ## 读取工作台中的批次
 
-需要核对实时现场且工作台已开启「允许 AI 操作」时，用本版本客户端执行一次 \`HydraulicTool.exe --project "<工程绝对目录>" --context --summary\`。从摘要的 \`capture.diagnosticStatus\` 核对状态和当前批次号，再用内置文件工具在 \`recordDirectory\` 下打开 \`diagnosticGuideFile\`。文件按批次列出对象、问题、影响、下一步、字段和原始证据。每批最多列出 12 条，超出部分可在报错卡查看。
+工作台开启「允许 AI 操作」后，使用 hydraulic_list_projects 确认目标，再用 hydraulic_live_capture 检查当前诊断批次，通过 hydraulic_live_read 按同一 captureId 分页读取。要重新执行静态检查时使用 hydraulic_live_diagnose。
 
 按「当前诊断」或用户指定的批次回答。「仅有历史」时注明批次和物理修订。「尚未检查」时说明缺少本次运行证据。没有实时连接或旧版本摘要缺少诊断字段时，可以请用户复制报错；只读取工程文件时标明已保存批次。
 

@@ -1,4 +1,9 @@
-import { networkToolParameterRows, type NetworkDraftSession, type NetworkToolBase } from '@hyd/application';
+import {
+  networkToolCommandLimit,
+  networkToolParameterRows,
+  type NetworkDraftSession,
+  type NetworkToolBase,
+} from '@hyd/application';
 import type { Result } from '@hyd/domain';
 import { element } from './network-dom.mjs';
 
@@ -79,7 +84,7 @@ export function setupNetworkAiSettings(hooks: Hooks) {
       `请帮助设置液压工程参数。用户要求：${requirement.value.trim()}\n` +
       '只建议所列字段，不猜缺失条件；缺必要输入时先说明缺口。数值均为SI，null表示未指定，不能替换为0。不得把建议写成仿真已通过。\n' +
       '元件参数的locked=true表示不可改变，minimum/maximum为允许范围。不得解锁、扩大范围或移除元件来绕过；需要改变约束请先让用户在参数窗口明确操作。\n' +
-      '仅返回JSON对象：{"base":下方base原样,"operation":"edit","commands":[命令]}。最多30条。\n' +
+      `仅返回JSON对象：{"base":下方base原样,"operation":"edit","commands":[命令]}。最多${networkToolCommandLimit}条。\n` +
       '元件参数：{kind:"parameter",id,group,key,value}；工程油液：{kind:"project-parameter",id:工程ID,key,value}；数值初态：{kind:"initial-parameter",id:元件ID,key,value}；已有物理管：{kind:"pipe-parameter",id:管路ID,key,value}。阀位/运行控制请使用软件专用界面。全部修改须用户预览后确认。\n' +
       JSON.stringify(
         {

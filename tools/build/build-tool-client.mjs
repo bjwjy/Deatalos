@@ -4,17 +4,17 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { root } from './paths.mjs';
 
-/** Windows-only adapter; source/CI on other platforms retains the legacy client. */
+/** Windows-only adapter; other platforms can still use offline MCP tools. */
 export async function buildToolClient() {
   if (process.platform !== 'win32') return;
-  const source = path.join(root, 'apps/desktop/native/tool-client');
+  const source = path.join(root, 'apps/desktop/native/mcp-credentials');
   const output = path.join(root, 'apps/desktop/dist/agent');
   await mkdir(output, { recursive: true });
   const files = (await readdir(source)).filter((name) => name.endsWith('.cs')).sort();
   const hash = createHash('sha256');
   for (const file of files) hash.update(file).update(await readFile(path.join(source, file)));
   const input = hash.digest('hex');
-  const executable = path.join(output, 'HydraulicTool.exe');
+  const executable = path.join(output, 'McpCredentials.exe');
   const manifestFile = path.join(output, 'tool-client-build.json');
   try {
     const previous = JSON.parse(await readFile(manifestFile, 'utf8'));

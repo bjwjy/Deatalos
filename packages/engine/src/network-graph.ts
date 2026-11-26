@@ -4,6 +4,8 @@ import {
   networkDefinition,
   networkPortActive,
   parseNetworkProject,
+  type NetworkComponent,
+  type NetworkPort,
   type NetworkEndpoint,
   type NetworkProject,
   type Result,
@@ -58,6 +60,59 @@ class Sets {
   }
 }
 
+// The project reader already validates hydraulic domains and output-to-input signal direction.
+function connectedEndpoints(project: NetworkProject) {
+  return new Set(project.design.connections.flatMap((edge) => [endpointKey(edge.from), endpointKey(edge.to)]));
+}
+
+function requiredPort(component: NetworkComponent, port: NetworkPort): boolean {
+  return networkPortActive(component, port.id) && (port.domain === 'hydraulic' || port.direction === 'input');
+}
+
+/** Checks the proposed document. Mapping diagnostics also cover connected but unresolved nets and model limitations. */
+export function networkWiringCheck(project: NetworkProject, validation: Result<true>) {
+  const connected = connectedEndpoints(project);
+  const missingRequired: string[] = [];
+  const optionalIdle: string[] = [];
+  const unconnectedNodes = project.design.nodes.filter((node) => !connected.has('n:' + node.id)).map((n) => n.id);
+  const review: { code: string; field: string; message: string }[] = [];
+  let requiredConnected = 0;
+  for (const component of project.design.components) {
+    const definition = networkDefinition(component.definition.id, component.definition.version);
+    const field = '/design/components/' + component.id;
+    if (!definition) {
+      review.push({ code: 'MODEL_UNSUPPORTED', field, message: '无法确定该版本的端口规则。' });
+      continue;
+    }
+    for (const port of definition.ports) {
+      const wired = connected.has(portKey(component.id, port.id));
+      if (requiredPort(component, port)) {
+        if (wired) requiredConnected++;
+        else missingRequired.push(field + '/' + port.id);
+      } else if (!wired) optionalIdle.push(field + '/' + port.id);
+    }
+  }
+  if (!validation.ok) {
+    for (const { code, field, message } of validation.diagnostics) {
+      if (!missingRequired.includes(field) && !unconnectedNodes.some((id) => field === '/design/nodes/' + id))
+        review.push({ code, field, message });
+    }
+  }
+  const incomplete =
+    missingRequired.length > 0 ||
+    unconnectedNodes.length > 0 ||
+    review.some((item) => item.code === 'GRAPH_INCOMPLETE');
+  return {
+    scope: 'candidate-static',
+    status: incomplete ? 'incomplete' : review.length ? 'needs-review' : 'ports-connected',
+    requiredConnected,
+    missingRequired,
+    optionalIdle,
+    unconnectedNodes,
+    review,
+  };
+}
+
 /** Pure graph compilation. Coordinates, titles and connection crossings are never read. */
 export function connectionGraph(input: unknown): Result<ConnectionGraph> {
   const parsed = parseNetworkProject(input);
@@ -66,10 +121,7 @@ export function connectionGraph(input: unknown): Result<ConnectionGraph> {
     sets = new Sets(),
     ports: GraphPort[] = [];
   const hydraulicConnections = project.design.connections.filter((edge) => edge.kind !== 'signal');
-  const connected = new Set(hydraulicConnections.flatMap((edge) => [endpointKey(edge.from), endpointKey(edge.to)]));
-  const signalTargets = new Set(
-    project.design.connections.filter((edge) => edge.kind === 'signal').map((edge) => endpointKey(edge.to)),
-  );
+  const connected = connectedEndpoints(project);
   if (
     !project.design.components.some(
       (c) => networkDefinition(c.definition.id, c.definition.version)?.role !== 'controller',
@@ -81,14 +133,15 @@ export function connectionGraph(input: unknown): Result<ConnectionGraph> {
     if (!definition) return failure('MODEL_UNSUPPORTED', '/design/components', '定义尚未注册。');
     for (const p of definition.ports) {
       const key = portKey(c.id, p.id);
-      // A retained X tube still ends at a zero-flow tap when another control source is selected.
-      if (!networkPortActive(c, p.id) && (p.domain !== 'hydraulic' || !connected.has(key))) continue;
+      const required = requiredPort(c, p);
       if (p.domain === 'signal') {
-        if (p.direction === 'input' && !signalTargets.has(key))
+        if (required && !connected.has(key))
           return failure('GRAPH_INCOMPLETE', `/design/components/${c.id}/${p.id}`, 'U 口尚未接入电压信号。');
         continue;
       }
-      const port = { key: portKey(c.id, p.id), kind: 'component' as const, ownerId: c.id, portId: p.id };
+      // A retained X tube still ends at a zero-flow tap when another control source is selected.
+      if (!required && !connected.has(key)) continue;
+      const port = { key, kind: 'component' as const, ownerId: c.id, portId: p.id };
       ports.push(port);
       sets.add(port.key);
     }
@@ -135,8 +188,11 @@ export function connectionGraph(input: unknown): Result<ConnectionGraph> {
       .map((e) => e.id)
       .sort(),
   }));
-  if (nets.some((n) => n.terminals.length < 2))
-    return failure('GRAPH_INCOMPLETE', '/design', '连接组至少需要两个物理端子。');
+  const dangling = nets.find((n) => n.terminals.length < 2);
+  if (dangling) {
+    const field = dangling.nodeIds.length ? '/design/nodes/' + dangling.nodeIds[0] : '/design';
+    return failure('GRAPH_INCOMPLETE', field, '连接组至少需要两个物理端子。');
+  }
   const islands = new Sets();
   for (const n of nets) islands.add(n.id);
   for (const owner of new Set(ports.map((p) => `${p.kind}:${p.ownerId}`))) {
@@ -145,27 +201,24 @@ export function connectionGraph(input: unknown): Result<ConnectionGraph> {
     if (first) for (const net of owned) islands.join(first, net);
   }
   for (const island of new Set(nets.map((n) => islands.find(n.id)))) {
-    const hasReference = nets
-      .filter((n) => islands.find(n.id) === island)
-      .some((n) =>
-        n.terminals.some((p) => {
-          const c = project.design.components.find((c) => c.id === p.ownerId);
-          return p.kind === 'component' && (c?.typeId === 'pressure-source' || c?.typeId === 'tank');
-        }),
-      );
+    const islandNets = nets.filter((n) => islands.find(n.id) === island);
+    const hasReference = islandNets.some((n) =>
+      n.terminals.some((p) => {
+        const c = project.design.components.find((c) => c.id === p.ownerId);
+        return p.kind === 'component' && (c?.typeId === 'pressure-source' || c?.typeId === 'tank');
+      }),
+    );
     if (!hasReference) {
+      const terminal = islandNets.flatMap((n) => n.terminals).find((p) => p.kind === 'component');
+      const field = terminal ? `/design/components/${terminal.ownerId}/${terminal.portId}` : '/design';
       const stored = project.design.components.some(
         (c) =>
           ['volume', 'cylinder'].includes(c.typeId) &&
-          nets.some((n) => islands.find(n.id) === island && n.terminals.some((p) => p.ownerId === c.id)),
+          islandNets.some((n) => n.terminals.some((p) => p.ownerId === c.id)),
       );
       return stored
-        ? failure(
-            'MODEL_UNSUPPORTED',
-            '/design',
-            '闭式储能岛可能有良好动态初值，但本映射尚无独立闭式验证，不误称欠定。',
-          )
-        : failure('GRAPH_UNDERDETERMINED', '/design', '无储能初值的纯阻性浮置岛没有压力参考。');
+        ? failure('MODEL_UNSUPPORTED', field, '闭式储能岛可能有良好动态初值，但本映射尚无独立闭式验证，不误称欠定。')
+        : failure('GRAPH_UNDERDETERMINED', field, '无储能初值的纯阻性浮置岛没有压力参考。');
     }
   }
   return { ok: true, value: immutable({ project, nets, hydraulicConnections }) };

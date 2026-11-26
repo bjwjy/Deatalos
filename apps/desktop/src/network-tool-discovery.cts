@@ -17,13 +17,16 @@ const fail = (code: string, message: string): Result<never> => ({
       field: '/tools',
       severity: 'error',
       message,
-      suggestion: '接口保持关闭；检查配套Windows客户端、当前账户及连接目录后重试，不修改全局脚本策略。',
+      suggestion: '接口保持关闭；检查工作台和 hydraulic MCP 是否使用同一 Windows 账户，再重新开启 AI 操作。',
     },
   ],
 });
 /** DPAPI defaults to the current Windows user. Token is stdin only, never a shell argument. */
-export function protectToolToken(token: string): Promise<string> {
-  if (process.platform !== 'win32' || !/^[a-f0-9]{64}$/.test(token))
+export function mcpCredential(mode: 'protect' | 'unprotect', token: string): Promise<string> {
+  if (
+    process.platform !== 'win32' ||
+    !(mode === 'protect' ? /^[a-f0-9]{64}$/ : /^(?:[a-fA-F0-9]{2}){50,4096}$/).test(token)
+  )
     return Promise.reject(new Error('TOOL_PROTECTION_UNAVAILABLE'));
   return new Promise((resolve, reject) => {
     // Packaged executables must be outside ASAR; source builds keep the same relative path.
@@ -31,7 +34,7 @@ export function protectToolToken(token: string): Promise<string> {
       `${path.sep}app.asar${path.sep}`,
       `${path.sep}app.asar.unpacked${path.sep}`,
     );
-    const child = spawn(path.join(nativeDirectory, 'agent/HydraulicTool.exe'), ['--protect'], {
+    const child = spawn(path.join(nativeDirectory, 'agent/McpCredentials.exe'), [mode], {
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -61,7 +64,11 @@ export function protectToolToken(token: string): Promise<string> {
     );
     child.stdin.on('error', () => finish(null));
     child.once('close', (code) =>
-      finish(code === 0 && /^[a-f0-9]{100,8192}$/i.test(output.trim()) ? output.trim() : null),
+      finish(
+        code === 0 && (mode === 'protect' ? /^[a-f0-9]{100,8192}$/i : /^[a-f0-9]{64}$/).test(output.trim())
+          ? output.trim()
+          : null,
+      ),
     );
     child.stdin.end(token);
   });
@@ -78,10 +85,10 @@ export class NetworkToolDiscovery {
   constructor(
     readonly server: Pick<NetworkToolServer, 'start' | 'stop'>,
     directory: string,
-    readonly protect: (token: string) => Promise<string> = protectToolToken,
+    readonly protect: (token: string) => Promise<string> = (token) => mcpCredential('protect', token),
     readonly options?: { readonly registryDirectory: string; readonly target: () => NetworkToolTarget | null },
   ) {
-    this.file = path.join(directory, 'ai-connection.json');
+    this.file = path.join(directory, 'mcp-connection.json');
     this.registryFile = options
       ? path.join(options.registryDirectory, digest(path.resolve(directory).toLowerCase()).slice(0, 32) + '.json')
       : null;
@@ -124,7 +131,7 @@ export class NetworkToolDiscovery {
       const protectedToken = await this.protect(credentials.value.token);
       if (!/^[a-f0-9]{100,8192}$/i.test(protectedToken)) throw new Error('TOOL_PROTECTION_INVALID');
       const record = {
-        format: 'HydraulicToolsConnection',
+        format: 'DeatalosMcpConnection',
         version: 1,
         protection: 'windows-dpapi-current-user',
         endpoint: credentials.value.endpoint,
@@ -138,7 +145,7 @@ export class NetworkToolDiscovery {
           this.registryFile,
           Buffer.from(
             JSON.stringify({
-              format: 'HydraulicToolsTarget',
+              format: 'DeatalosMcpTarget',
               version: 1,
               ...target,
               connectionId: credentials.value.connectionId,

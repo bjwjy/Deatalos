@@ -70,7 +70,7 @@ export class NetworkToolServer {
       }
       const address = server.address();
       if (!address || typeof address === 'string') throw new Error('Loopback address unavailable');
-      this.#credentials = Object.freeze({ endpoint: `http://127.0.0.1:${address.port}/tools`, token, connectionId });
+      this.#credentials = Object.freeze({ endpoint: `http://127.0.0.1:${address.port}/mcp/live`, token, connectionId });
       server.on('error', () => {
         void this.stop().then(() => this.onFailure());
       });
@@ -140,15 +140,19 @@ export class NetworkToolServer {
       Buffer.byteLength(authorization) !== Buffer.byteLength(expected) ||
       !timingSafeEqual(Buffer.from(authorization), Buffer.from(expected))
     ) {
-      send(401, failure('TOOL_UNAUTHORIZED', '需要本次启用后显示的会话令牌。'));
+      send(401, failure('TOOL_UNAUTHORIZED', 'MCP 会话授权已失效。'));
       return;
     }
-    if (request.method !== 'POST' || request.url !== '/tools') {
-      send(404, failure('TOOL_METHOD_INVALID', '只提供 POST /tools，不提供URL路径能力。'));
+    if (request.method !== 'POST' || request.url !== '/mcp/live') {
+      send(404, failure('TOOL_METHOD_INVALID', '此连接仅供 MCP 实时调用。'));
       return;
     }
     const targetHeader = request.headers['x-hydraulic-target'];
-    if (targetHeader !== undefined) {
+    if (targetHeader === undefined) {
+      send(403, failure('TARGET_REQUIRED', 'MCP 实时操作需要已授权的文件夹工程。'));
+      return;
+    }
+    {
       let input: unknown;
       try {
         if (typeof targetHeader !== 'string' || targetHeader.length > 6000 || !/^[A-Za-z0-9+/]+=*$/.test(targetHeader))

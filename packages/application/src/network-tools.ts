@@ -10,7 +10,7 @@ import {
   type NetworkProject,
   type Result,
 } from '@hyd/domain';
-import { compileHopsan } from '@hyd/engine';
+import { compileHopsan, networkWiringCheck } from '@hyd/engine';
 import { networkResultView, networkSelectionPolicy, type CalculationRecord } from '@hyd/engineering';
 import type { NetworkDraftSession } from './network-draft.js';
 import { networkToolCalculate } from './network-tool-calculation.js';
@@ -18,7 +18,12 @@ import type { NetworkRuntimeView } from './network-services.js';
 import { parseNetworkRecordPage } from './network-export.js';
 import { parseNetworkControlRecordPage } from './network-control-records.js';
 import { sameNetworkIdentity, type RecordSelection } from './network-records.js';
-import { planNetworkToolCommands, networkToolChanges, type NetworkToolEditPlan } from './network-tool-commands.js';
+import {
+  networkToolCommandLimit,
+  planNetworkToolCommands,
+  networkToolChanges,
+  type NetworkToolEditPlan,
+} from './network-tool-commands.js';
 import { networkToolSelectionNotes } from './network-tool-selection.js';
 import {
   toolFailure,
@@ -75,6 +80,7 @@ export interface NetworkToolProposal {
   readonly state: 'pending' | 'applied' | 'cancelled' | 'stale';
   readonly plan: NetworkToolEditPlan | null;
   readonly validation: Result<true>;
+  readonly wiringCheck: ReturnType<typeof networkWiringCheck>;
   readonly changes: NetworkToolEditPlan['changes'];
 }
 export interface NetworkToolPort {
@@ -157,7 +163,7 @@ export class NetworkTools {
       protocol: 'HydraulicTools',
       requestSchema: networkToolRequestSchema,
       version: 1,
-      transport: 'HTTP POST /tools on manually enabled 127.0.0.1 ephemeral port',
+      transport: 'hydraulic MCP stdio; live operations require an explicitly enabled workbench connection',
       permissions: ['read', 'propose'],
       selectionPolicy: networkSelectionPolicy,
       workflow: {
@@ -170,6 +176,8 @@ export class NetworkTools {
           'Use the current live capture including unsaved changes. Never choose another project/window or reuse a stale base.',
         existingDesign:
           'Check existing components and connections before planning. If the requested circuit already exists, explain it; ask before adding another parallel branch, replacing it or creating a separate circuit. Do not invent changes solely to produce a proposal.',
+        multiCircuit:
+          'Track each requested function, actuator, required port connections and shared supply/return against a fresh capture. Identify existing, proposed and outstanding items. At a limit or partial delivery, name the remaining branches and connections. Read wiringCheck and runtimeValidation separately from application and measured simulation results.',
         readParameters:
           'Every read needs captureId, collection, offset, limit and simulationSessionId. Use simulationSessionId:null for all collections except samples/controls; a runtime id in capture.base is not a selector for design pages.',
         parameterRules:
@@ -243,7 +251,7 @@ export class NetworkTools {
         requestBytes: 1048576,
         responseBytes: 4194304,
         page: 20,
-        commands: 30,
+        commands: networkToolCommandLimit,
         captures: 2,
         calculations: 8,
         pendingProposal: 2,
@@ -626,6 +634,8 @@ export class NetworkTools {
       )
         ? 'calculation'
         : 'diagram';
+    const validation = runnable(document);
+    const wiringCheck = networkWiringCheck(document, validation);
     const prior = this.#pending.get(category);
     if (prior) this.#finish(prior.id, 'cancelled');
     const proposal: NetworkToolProposal = immutable({
@@ -637,7 +647,8 @@ export class NetworkTools {
       state: 'pending',
       plan,
       changes: networkToolChanges(session.document, document),
-      validation: runnable(document),
+      validation,
+      wiringCheck,
     });
     this.#pending.set(category, proposal);
     return { ok: true, value: this.#public(proposal) };
@@ -652,6 +663,7 @@ export class NetworkTools {
       physical: p.physical,
       changes: p.changes,
       commands: p.plan?.commands ?? [],
+      wiringCheck: p.wiringCheck,
       runtimeValidation: p.validation,
       runtimeValidationScope: 'static-mapping-only; no native execution performed',
       confirmationRequired: true,
