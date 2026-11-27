@@ -22,6 +22,12 @@
     <link rel="stylesheet" href="./network-v13-shortcuts.css" />
   </head>
   <body>
+    <template
+      id="glassMaterials"
+      data-silver="__GLASS_SILVER__"
+      data-oat="__GLASS_OAT__"
+      data-coral="__GLASS_CORAL__"
+    ></template>
     <header class="top project-header">
       <div class="identity">
         <img class="brand-icon" src="__DEATALOS_ICON__" width="32" height="32" alt="Deatalos" />
@@ -67,14 +73,10 @@
             <button id="cutSelected" title="复制确认成功后剪切（Ctrl+X）">剪切</button>
             <button id="pasteSelected" title="在视区中心粘贴，连续粘贴逐次偏移（Ctrl+V）">粘贴</button>
             <button id="rotateSelected" title="所选元件各自顺时针旋转90°（空格）">旋转90°</button>
-            <button id="connectMode" title="开始连线；依次选择两个油口或节点">连接</button>
-            <button id="cancelConnect" title="取消当前连线手势；不删除已有连线">取消连接</button>
             <button id="addTextAnnotation" type="button" title="在画布点击放置多行文字">放置文本…</button>
             <button id="addNode" type="button" title="添加明确连接油口的分支节点">添加分支节点</button
             ><button id="undo" type="button" title="撤销（Ctrl+Z）">撤销</button
-            ><button id="redo" type="button" title="重做（Ctrl+Y）">重做</button
-            ><button id="deleteSelected" type="button" title="删除选中对象；可撤销">删除选中对象</button
-            ><button type="button" data-panel="routeTools">手动绘图路径…</button>
+            ><button id="redo" type="button" title="重做（Ctrl+Y）">重做</button>
           </div>
           <button type="button" popovertarget="viewCommands" aria-label="视图菜单">视图</button>
           <div id="viewCommands" class="menu-popup" popover="manual">
@@ -107,10 +109,7 @@
                 元件数据与运行状态…
               </button></span
             ><button id="openConnectionProperties" type="button" data-panel="properties" hidden>管路属性与参数…</button
-            ><button type="button" data-command="fitAll">适合全图</button
-            ><button id="resetWorkspace" type="button" title="恢复右侧曲线区默认宽度；工程与结果保持">
-              恢复区域尺寸</button
-            ><button type="button" data-panel="networkHelp">符号与压力说明…</button>
+            ><button type="button" data-command="fitAll">适合全图</button>
           </div>
           <button type="button" popovertarget="simulationCommands" aria-label="仿真菜单">仿真</button>
           <div id="simulationCommands" class="menu-popup" popover>
@@ -122,13 +121,6 @@
           </div>
           <button type="button" popovertarget="toolCommands" aria-label="工具菜单">工具</button>
           <div id="toolCommands" class="menu-popup" popover>
-            <button type="button" data-panel="appSettings">设置…</button>
-            <label class="tool-permission"
-              ><input id="allowAiOperations" type="checkbox" role="switch" /> 允许 AI 操作</label
-            >
-            <label class="tool-permission"
-              ><input id="allowAiSimulation" type="checkbox" role="switch" disabled /> 允许本次 AI 仿真控制</label
-            >
             <details open>
               <summary>计算</summary>
               <button type="button" data-panel="sizingTools">基础计算…</button
@@ -337,9 +329,9 @@
             <button
               class="tool"
               id="enableAi"
-              aria-pressed="false"
-              aria-label="允许AI操作"
-              data-tip="允许本机AI接入；候选仍需确认"
+              aria-label="关闭本次 AI 控制"
+              aria-pressed="true"
+              data-tip="关闭本次 AI 控制"
             >
               <svg
                 class="icon"
@@ -380,6 +372,7 @@
       </section>
       <section class="canvas-area drawing-workspace" id="canvasArea" aria-label="自由绘图工作区">
         <div class="canvas-stage" id="canvasStage">
+          <div id="canvasGestureHint" aria-hidden="true" hidden><div id="canvasGestureWheel"></div></div>
           <div class="canvas-source">
             <span id="selectionCount" class="sr-only"></span>
             <p id="routingStatus" role="status"></p>
@@ -456,8 +449,6 @@
               </select></label
             >
             <p id="stepStatus" class="muted"></p>
-            <label><input id="lowPressurePreview" type="checkbox" /> 低压续算（等效空穴预览）</label>
-            <p class="muted">适用于已支持的单执行元件和共源双支路回路。重新初始化时生效。</p>
             <button id="reinitializeStep" class="wide">按当前运行设置重新初始化</button>
             <details>
               <summary>步长依据与来源</summary>
@@ -470,7 +461,7 @@
         id="inspectorResize"
         class="region-resize workspace-divider"
         role="separator"
-        aria-label="调整右侧曲线区域宽度"
+        aria-label="调整右侧面板宽度"
         aria-orientation="vertical"
         tabindex="0"
       ></div>
@@ -505,15 +496,6 @@
 
           <details class="section" id="layoutTools"></details>
           <section id="externalTools"></section>
-          <details class="section" id="routeTools">
-            <summary>高级：手动绘图路径</summary>
-            <button id="manualRoute">编辑线段 / 折点</button><button id="autoRoute">恢复自动</button
-            ><button id="removeBend">移除选中折点</button><button id="mergeRoute">合并近共线线段</button>
-            <p class="muted">
-              选择管路后可直接拖动方形中点：水平段上下移，竖直段左右移，松手保存，Esc取消。需要编辑折点时点击“编辑线段 /
-              折点”，双击线段插入锚点；“恢复自动”撤去手动路径。编辑完成会自动整理同一连接内2绘图单位以内的微小折线，也可点“合并近共线线段”整理已有手动路径；明显折点、真实端点及障碍约束保持，可一次撤销。端点始终跟随真实油口，仅改变绘图。连接时点画布空白可取消起点，拖动平移/框选不当作空白点击。
-            </p>
-          </details>
           <div class="section" id="connectionReadout" hidden>
             <h2>管路压力与流量</h2>
             <p id="connectionResults">选中管路可读取两端压力与有符号流量。</p>
@@ -562,6 +544,14 @@
         ><button id="statusHideAll" type="button">全部收起</button
         ><button id="statusRestoreDefault" type="button">恢复默认</button>
       </div>
+    </div>
+    <div id="routeTools" class="menu-popup" popover="auto" aria-label="管线操作">
+      <button id="addRouteBend" type="button">添加折点</button>
+      <button id="autoRoute" type="button">恢复自动布线</button>
+      <button id="manualRoute" type="button">编辑手动路径</button>
+      <button id="removeBend" type="button">移除选中折点</button>
+      <button id="mergeRoute" type="button">合并近共线线段</button>
+      <button id="deleteRoute" type="button">删除管线</button>
     </div>
     <div id="statusPanelParking" hidden></div>
     <div id="displaySettingsMenu" class="submenu-popup" popover="manual">
@@ -967,6 +957,11 @@
         <button id="saveProbe">保存压力表配置</button><button id="deleteProbe">删除压力表</button>
       </div>
     </dialog>
+    <div id="lowPressureNotice" popover="manual" role="status" class="low-pressure-notice">
+      <strong>已启用低压续算</strong>
+      <p id="lowPressureNoticeDetail"></p>
+      <button type="button" popovertarget="lowPressureNotice" popovertargetaction="hide">知道了</button>
+    </div>
     <dialog id="appSettings" aria-labelledby="appSettingsTitle">
       <div class="dialog-head">
         <h2 id="appSettingsTitle">设置</h2>
@@ -979,6 +974,7 @@
               <h3 id="appAppearanceTitle">外观</h3>
               <label>主题配色<select id="appTheme"></select></label>
               <button type="button" data-panel="pressureSettings">压力颜色分级…</button>
+              <button id="resetWorkspace" type="button">恢复右侧面板默认宽度</button>
             </section>
           </div>
           <div id="appCanvasSettings" class="app-settings-pane">
@@ -1034,6 +1030,32 @@
             </section>
             <p id="appSettingsStatus" class="dialog-note" role="status"></p>
           </div>
+          <section id="appGestureSettings" class="app-settings-section">
+            <h3>鼠标笔势</h3>
+            <p class="dialog-note">按住右键轻拖唤出圆环，划出圆环执行命令，环内松开取消。轻点右键打开菜单。</p>
+            <div class="gesture-options"><label>方向数<select id="gestureMode"><option value="4">四向</option><option value="8">八向</option></select></label><label>触发灵敏度<select id="gestureSensitivity" title="按住右键后，唤出圆环所需的移动距离"><option value="22">低 · 移动 22 px</option><option value="18">较低 · 移动 18 px</option><option value="14" selected>中 · 移动 14 px</option><option value="10">较高 · 移动 10 px</option><option value="7">高 · 移动 7 px</option></select></label></div>
+            <div class="gesture-sizes">
+              <label for="gestureInner">内环半径 <output id="gestureInnerValue" for="gestureInner"></output><input id="gestureInner" type="range" min="16" max="96" step="1" value="70"></label>
+              <label for="gestureOuter">外环半径 <output id="gestureOuterValue" for="gestureOuter"></output><input id="gestureOuter" type="range" min="56" max="156" step="1" value="115"></label>
+              <button type="button" id="gestureRatioLock" class="parameter-lock" aria-label="锁定内外环比例" aria-pressed="false"></button>
+            </div>
+            <div class="gesture-binding-editor"><div class="gesture-preview-frame"><div id="gestureBindings" role="group" aria-label="选择笔势方向"></div></div><div class="gesture-command-panel"><p class="dialog-note">将功能拖到圆环的目标方向</p><div id="gesturePalette" role="group" aria-label="笔势功能"></div><p id="gestureDirection" aria-live="polite"></p></div></div>
+            <button type="button" id="resetGestureBindings">恢复默认笔势</button>
+            <p class="dialog-note">T 放置文字，X 进入裁剪。左键划过尾段可裁掉尾段；划过两端已连接的管线可删除整条连接。可连续划线，右键或 Esc 退出，Ctrl+Z 逐笔撤销。</p>
+            <p id="gestureSettingsStatus" role="status"></p>
+          </section>
+          <section id="appAiSettings" class="app-settings-section">
+            <h3>AI 控制</h3>
+            <label class="tool-permission"><input id="allowAiOperations" type="checkbox" role="switch" checked /> 启动时默认开启 AI 控制</label>
+            <p class="dialog-note">下次启动工作台时生效。本次 AI 控制可用工具栏的 AI 按钮随时开关。开启后允许 MCP 客户端读取文件夹工程、提交修改候选和控制仿真；修改候选仍需你确认。</p>
+            <p id="toolStatus" role="status"></p>
+            <button id="retryAiConnection" type="button" hidden>重试</button>
+          </section>
+          <section id="appSimulationSettings" class="app-settings-section">
+            <h3>低压续算</h3>
+            <label><input id="lowPressurePreview" type="checkbox" checked /> 允许自动低压续算</label>
+            <p class="dialog-note">下次初始化时生效。仿真先按普通模型运行，遇到支持的低压工况时自动切入等效空穴预览。</p>
+          </section>
           <section id="appCurveSettings" class="app-settings-section">
             <h3>默认查看范围</h3>
             <label
@@ -1232,7 +1254,7 @@
             元件库”切换并恢复。关闭库不会删除任何工程元件。小画布点击卡片后自动最小化库，方便查看；点标题“□”展开。标题获焦时方向键也可移动。
           </p>
           <p>
-            拖动画布与属性结果区之间的细分隔条连续调整区域；分隔条获焦后方向键可调宽，双击恢复默认。位置和区域尺寸仅保存在本机，不改工程参数或仿真结果。窄窗口从右上“属性与结果”打开面板，再点“×”收起。
+            拖动画布与属性结果区之间的细分隔条连续调整区域；分隔条获焦后可用方向键调宽。双击分隔条，或在「设置 → 外观」点击「恢复右侧面板默认宽度」，即可复位。位置和区域尺寸仅保存在本机，不改工程参数或仿真结果。窄窗口从右上“属性与结果”打开面板，再点“×”收起。
           </p>
           <p>
             画布左→右拖框（蓝色）完全包围元件以选择，右→左拖框（橙色）与线相交即选线；两种方向分别只选对应类型，Shift可追加同类选择。选线后Delete或“编辑→删除”批量删除。Esc取消手势/连接并清除选择。选中元件后空格顺时针旋转90°，多选绕各自中心；Ctrl+C/X复制/剪切元件、节点与内部连线，外部连线不带并提示。Ctrl+V在当前视区中心粘贴，连续粘贴偏移24绘图单位。文字输入框内保留原生快捷键；Enter仍可操作获焦阀位。滚轮缩放，中键平移；右下角“适合全图”或Home显示完整回路。主界面不显示缩放百分比。常用操作在菜单下方，低频操作在多级菜单，鼠标移到顶部菜单文字即展开，点击和键盘操作也保留。按钮悬停高亮、按下有轻微按压反馈；悬停可看短说明，持续运行时运行图标变为跳动短柱和环形流光，暂停、复位或失效后停止；系统“减少动态效果”保留静态运行标记并关闭位移动画；元件库最小化/关闭按钮悬停变色，点击才执行。
@@ -1258,8 +1280,7 @@
             “新连线：理想/物理管”仅决定以后创建的连线。理想连接等压且忽略管损；物理管需填写实际管长、直径等参数，先预览再确认。画线距离不代替真实管长。默认理想，可在设置中恢复默认，不更改旧管路。
           </p>
           <p>
-            从“编辑 → 连接”开始，依次选两个油口或显式节点；“编辑 →
-            取消连接”或Esc结束手势。画面交叉不代表连通。选择对象、拖动、查看和保存不改变有效物理结果；真实参数或拓扑变化后需重新初始化。
+            依次点击两个油口即可连线。要从分支节点起接，可长按拖到目标，或在画布按 C 后点选两个端点。按 Esc 或点画布空白处可取消当前连线。画面交叉不代表连通。选择对象、拖动、查看和保存不改变有效物理结果；真实参数或拓扑变化后需重新初始化。
           </p>
           <button data-command="idealMode">恢复新连线默认（理想）</button>
         </section>
@@ -1351,13 +1372,11 @@
             MPa试算预算。这些不是实际工况、实测效率/腔压或供油保证，也不会自动改动负载、阀位或溢流设定；不符合真实要求时请覆盖。多对象不套用首实例，缺可靠来源和非法数值仍定位到字段。新增工况使用独立教学假设，不复制上一阶段的手动目标。先预览，经确认应用可一次撤销；关闭/Esc取消预览，原工程保留。单缸尺寸初选仍需其明确设计目标；这里没有增加恒压源需求核算或任意网络反求能力。
           </p>
           <p>
-            快捷工具栏“整理”一次整理元件、分支节点与连线，包含重建手动线路，可一次撤销。Ctrl+Shift+L仅整理自动连线，元件、分支节点和手动线路保持原位，输入框内保留文字操作。“编辑
-            →
-            手动绘图路径…”可调整手动路径。避障警告悬浮显示，调整遮挡元件或拖动线段中点可手动修补。绘图调整不改变物理管长。
+            快捷工具栏“整理”一次整理元件、分支节点与连线，包含重建手动线路，可一次撤销。Ctrl+Shift+L仅整理自动连线，元件、分支节点和手动线路保持原位，输入框内保留文字操作。选中管线后可拖动线段中点调整走向；右键管线可在该处添加折点或恢复自动布线。避障警告悬浮显示，调整遮挡元件或拖动线段中点可手动修补。绘图调整不改变物理管长。
           </p>
           <p>
-            “工具 → 本机 AI 接入与候选”查看连接状态和编辑预览；“工具 → 允许 AI
-            操作”默认关闭，打开后支持的Windows客户端自动连接，修改仍须逐次接受。关闭、换工程和退出会退役旧凭证，不自动上传。工程AI.md指向自动接入说明；不支持本机发现的环境可查看高级手动连接，不能据此提升Harness权限。详细参数和来源仍可在相应面板展开。工具
+            工具栏 AI 按钮可开启或关闭本次 MCP 接入和 AI 仿真控制。启动时默认开启，可在“设置 → AI 控制”中更改下次启动的默认值。
+            切换工程时，旧连接和待确认的候选会退役。改图候选须在工作台逐次确认。可在“工具 → AI 接入与候选”中查看连接和候选。工具
             → AI → 「手动建议」是客户端无法直接连接时的备用入口。可选工程或元件、填写要求并复制参数提示，粘贴 AI 返回的
             JSON
             后，到「修改候选」核对原值、建议值、单位及来源。工程或运行身份改变时重新生成提示。软件不自动发送工程，建议须经确认后应用。

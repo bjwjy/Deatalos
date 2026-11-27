@@ -113,7 +113,7 @@ export function setupNetworkAiSettings(hooks: Hooks) {
   });
   element('aiPreviewParameters').addEventListener('click', () => {
     if (!hooks.enabled()) {
-      status('请先开启“允许 AI 操作”，再预览参数建议。');
+      status('请先打开或保存文件夹工程，在「设置 → AI 控制」确认已连接，再预览参数建议。');
       return;
     }
     if (!promptBase) {

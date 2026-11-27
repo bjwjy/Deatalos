@@ -38,7 +38,7 @@ import { diagnosticToolSnapshot, type DiagnosticView } from './network-diagnosti
 declare global {
   interface Window {
     networkTools: {
-      start(): Promise<unknown>;
+      start(sessionId: string): Promise<unknown>;
       stop(): Promise<unknown>;
       lifecycle(input: unknown): Promise<boolean>;
       reply(input: unknown): Promise<boolean>;
@@ -163,17 +163,9 @@ export function createNetworkTools(hooks: Hooks) {
   const root = element('externalTools');
   root.innerHTML = `<section id="aiConnection">
       <h3>本机连接</h3>
-      <div class="ai-connection-card">
-        <div>
-          <strong>MCP 接口</strong>
-          <p id="toolStatus" role="status">AI 操作已关闭。</p>
-        </div>
-        <div class="ai-dialog-actions">
-          <button type="button" id="startTools" class="dialog-primary">启用MCP 接口</button>
-          <button type="button" id="stopTools" disabled>关闭接口</button>
-        </div>
-      </div>
-      <p class="muted ai-connection-note">保存为文件夹工程后，在已连接 hydraulic MCP 的客户端提出要求，在「修改候选」确认。关闭接口或切换工程会清除待确认候选。仿真控制需在「工具」中单独授权。</p>
+      <p id="toolConnectionSummary" role="status"></p>
+      <p class="muted ai-connection-note">通过 hydraulic MCP 连接已保存的文件夹工程。改图候选需要在工作台确认，切换工程后旧连接和待确认候选会退役。</p>
+      <button type="button" id="openAiControlSettings">AI 控制设置…</button>
     </section>
     <section id="aiCandidatePane">
       <h3>修改候选</h3>
@@ -195,15 +187,15 @@ export function createNetworkTools(hooks: Hooks) {
   const toggleElement = element('allowAiOperations');
   if (!(toggleElement instanceof HTMLInputElement)) throw new Error('AI permission must be a switch');
   const toggle = toggleElement;
-  const simulationToggleElement = element('allowAiSimulation');
-  if (!(simulationToggleElement instanceof HTMLInputElement))
-    throw new Error('AI simulation permission must be a switch');
-  const simulationToggle = simulationToggleElement;
-  let simulationPermissionRevision = 0;
-  simulationToggle.addEventListener('change', () => {
-    simulationPermissionRevision++;
-    if (!simulationToggle.checked) void hooks.runtime.enqueue(hooks.runtime.pauseLimited);
-  });
+  const preferenceKey = 'deatalos.ai.control';
+  let allowed = true;
+  try {
+    allowed = localStorage.getItem(preferenceKey) !== 'off';
+  } catch {
+    /* Use session preference. */
+  }
+  toggle.checked = allowed;
+  const folderReady = () => hooks.files.canConnectMcp;
   const choiceElement = element('toolProposalChoice');
   if (!(choiceElement instanceof HTMLSelectElement)) throw new Error('Proposal choice must be a select');
   const choice = choiceElement;
@@ -235,39 +227,45 @@ export function createNetworkTools(hooks: Hooks) {
   function renderQuick() {
     const busy = transition === 'starting' || transition === 'stopping';
     quick.disabled = busy;
-    toggle.disabled = busy;
-    element('startTools').toggleAttribute('disabled', transition !== 'idle' || credentials !== null);
-    const stopButton = element('stopTools');
-    stopButton.toggleAttribute('disabled', busy || (!credentials && transition !== 'stop-failed'));
-    stopButton.textContent = transition === 'stop-failed' ? '重试关闭' : '关闭接口';
-    simulationToggle.disabled = busy || !credentials;
-    quick.setAttribute('aria-pressed', String(credentials !== null));
     quick.setAttribute('aria-busy', String(busy));
-    quick.dataset.aiState = transition === 'idle' ? (credentials ? 'enabled' : 'disabled') : transition;
-    quick
-      .querySelector('.ai-status-mark')
-      ?.setAttribute(
-        'd',
-        transition === 'stop-failed' ? 'M16 14v2M16 17.5v.1' : credentials ? 'M14 16l1.3 1.3 2.7-3' : 'M14 16h4',
-      );
-    quick.setAttribute(
-      'aria-label',
-      credentials ? '关闭AI操作' : transition === 'stop-failed' ? '重试关闭AI操作' : '允许AI操作',
-    );
-    quick.title = busy
-      ? transition === 'starting'
-        ? '正在开启AI接入…'
-        : '正在关闭AI接入…'
-      : transition === 'stop-failed'
-        ? '关闭未确认，点击重试；本地候选与权限已退役'
-        : credentials
-          ? 'AI操作已允许；点击关闭并退役连接和候选'
-          : '点击允许本机AI操作；候选仍需逐次确认';
+    quick.setAttribute('aria-pressed', String(allowed));
+    const action =
+      transition === 'stop-failed' ? '重试关闭 AI 连接' : allowed ? '关闭本次 AI 控制' : '开启本次 AI 控制';
+    quick.setAttribute('aria-label', action);
+    quick.dataset.tip = action;
+    const state = transition === 'idle' ? (credentials ? 'enabled' : 'disabled') : transition;
+    toggle.dataset.connectionState = state;
+    quick.dataset.aiState = state;
+    quick.querySelector('.ai-status-mark')?.setAttribute('d', allowed ? 'M14 16l1.3 1.3 2.7-3' : 'M14 16h4');
+    const status = element('toolStatus');
+    if (!busy && transition !== 'stop-failed') {
+      if (!allowed) status.textContent = 'AI 控制已关闭。';
+      else if (!folderReady()) status.textContent = 'AI 控制已开启，保存或打开文件夹工程后将自动连接。';
+      else if (credentials) status.textContent = 'MCP 已连接当前工程。';
+    }
+    element('toolConnectionSummary').textContent = status.textContent;
+    element('retryAiConnection').hidden =
+      busy || !(transition === 'stop-failed' || (allowed && folderReady() && !credentials));
   }
-  quick.addEventListener('click', () => {
-    if (credentials || transition === 'stop-failed') void stop();
-    else void start();
+  function openAiSettings() {
+    const dialog = element('externalToolsDialog');
+    if (dialog instanceof HTMLDialogElement && dialog.open) dialog.close();
+    element('openAppSettings').click();
+    element('appSettingsTabs').querySelector<HTMLButtonElement>('[data-tab="ai-control"]')?.click();
+    toggle.focus();
+  }
+  quick.addEventListener('click', async () => {
+    if (transition === 'stop-failed') {
+      await stop();
+      syncBinding();
+      return;
+    }
+    if (transition !== 'idle') return;
+    allowed = !allowed;
+    if (allowed) syncBinding();
+    else await stop();
   });
+  element('openAiControlSettings').addEventListener('click', openAiSettings);
   const source = (): NetworkToolSource => ({ runtime: hooks.runtime.runtime, diagnostics: hooks.diagnostics() });
   const history = createAiCandidateHistory({
     open: openProposal,
@@ -347,9 +345,6 @@ export function createNetworkTools(hooks: Hooks) {
     ++generation;
     credentials = null;
     if (transition !== 'stopping') transition = 'idle';
-    toggle.checked = false;
-    simulationToggle.checked = false;
-    simulationPermissionRevision++;
     void hooks.runtime.enqueue(hooks.runtime.pauseLimited);
     for (const proposal of tools.pendingProposals) history.mark(proposal.id, 'expired');
     tools.clear();
@@ -365,11 +360,11 @@ export function createNetworkTools(hooks: Hooks) {
     activeProposalId = '';
     origins.clear();
     notices.clear();
+    element('toolStatus').textContent = message;
     renderQuick();
     element('toolProposal').hidden = true;
     element('aiCandidateEmpty').hidden = false;
     element('aiCandidateStatus').textContent = '';
-    element('toolStatus').textContent = message;
     settings.render();
   }
   async function stop(message = '接口关闭，令牌和候选已退役。') {
@@ -395,15 +390,14 @@ export function createNetworkTools(hooks: Hooks) {
     }
   }
   async function start() {
-    if (transition !== 'idle' || credentials) return;
+    if (!allowed || !folderReady() || transition !== 'idle' || credentials) return;
     transition = 'starting';
     renderQuick();
-    toggle.checked = true;
     element('toolStatus').textContent = '正在建立 MCP 连接…';
     const current = ++generation,
       session = hooks.editor().documentSessionId;
     try {
-      const result = parseServiceResult(await window.networkTools.start());
+      const result = parseServiceResult(await window.networkTools.start(session));
       if (current !== generation || session !== hooks.editor().documentSessionId) {
         return;
       }
@@ -426,7 +420,6 @@ export function createNetworkTools(hooks: Hooks) {
         return;
       }
       credentials = checked.value;
-      toggle.checked = true;
       element('toolStatus').textContent = 'AI操作已开启 · MCP 已就绪；候选须在这里逐次接受。';
       settings.render();
     } catch {
@@ -439,12 +432,21 @@ export function createNetworkTools(hooks: Hooks) {
       renderQuick();
     }
   }
-  element('startTools').addEventListener('click', () => void start());
-  element('stopTools').addEventListener('click', () => void stop());
+  function syncBinding() {
+    if (allowed && folderReady() && !credentials) void start();
+    renderQuick();
+  }
   toggle.addEventListener('change', () => {
-    if (transition === 'stop-failed') void stop();
-    else if (toggle.checked) void start();
-    else void stop();
+    try {
+      localStorage.setItem(preferenceKey, toggle.checked ? 'on' : 'off');
+    } catch {
+      toggle.checked = !toggle.checked;
+      showNetworkNotice('未能保存启动时的 AI 控制设置。');
+    }
+  });
+  element('retryAiConnection').addEventListener('click', async () => {
+    if (transition === 'stop-failed') await stop();
+    syncBinding();
   });
   function acceptProposal(id: string) {
     if (!credentials || !tools.pendingProposals.some((p) => p.id === id)) {
@@ -574,7 +576,8 @@ export function createNetworkTools(hooks: Hooks) {
     { base, action }: Extract<NetworkToolRequest, { method: 'simulate' }>['params'],
     current: () => boolean,
   ): Promise<Result<unknown>> {
-    if (!current()) return fail('SIMULATION_PERMISSION_REQUIRED', '请在目标工作台开启「允许本次 AI 仿真控制」。');
+    if (!current())
+      return fail('SIMULATION_PERMISSION_REQUIRED', '请在目标工作台点击工具栏 AI 按钮，开启本次 AI 控制。');
     const now = networkToolBase(editor, source());
     const target = base.runtimeIdentity;
     const live = now.runtimeIdentity;
@@ -664,20 +667,18 @@ export function createNetworkTools(hooks: Hooks) {
       if (!envelope.ok || !request.ok) return;
       const epoch = generation,
         editor = hooks.editor();
-      const permission = simulationPermissionRevision;
-      const simulationAllowed = simulationToggle.checked;
       let replied = false;
       const reply = async (result: Result<unknown>) => {
         replied = true;
         await window.networkTools.reply({ id, result });
       };
       const active = () =>
+        allowed &&
         epoch === generation &&
         credentials?.connectionId === connectionId &&
         !cancelled.has(id) &&
         hooks.editor() === editor;
-      const maySimulate = () =>
-        active() && simulationAllowed && simulationToggle.checked && permission === simulationPermissionRevision;
+      const maySimulate = active;
       await hooks.runtime.enqueue(
         async () => {
           try {
@@ -690,7 +691,7 @@ export function createNetworkTools(hooks: Hooks) {
             if (q.method === 'capabilities')
               result = {
                 ok: true,
-                value: { ...tools.capabilities(), simulationControl: { authorized: simulationToggle.checked } },
+                value: { ...tools.capabilities(), simulationControl: { authorized: maySimulate() } },
               };
             else if (q.method === 'recovery_list') result = await hooks.recovery.summaries();
             else if (q.method === 'settings_read') result = settingsDialogs.read();
@@ -899,7 +900,7 @@ export function createNetworkTools(hooks: Hooks) {
               result = tools.cancel(q.params.proposalId);
               if (result.ok) history.mark(q.params.proposalId, 'rejected');
             } else result = fail('CONFIRMATION_REQUIRED', '远程apply不会修改工程；请在工作台检查逐项预览并明确接受。');
-            if (!active() || (q.method === 'simulate' && simulationAllowed && !maySimulate())) {
+            if (!active()) {
               const settingsOperation = settingsByRequest.get(id);
               if (settingsOperation) settingsDialogs.cancel(settingsOperation);
               if (
@@ -926,5 +927,5 @@ export function createNetworkTools(hooks: Hooks) {
       element('toolStatus').textContent = '工具连接已退役；请重新启用后读取。';
     });
   });
-  return { render };
+  return { render, syncBinding };
 }

@@ -332,6 +332,9 @@ export function setupNetworkTaskSurfaces(): void {
     [
       { key: 'appearance', label: '外观', pane: element('appAppearanceSettings') },
       { key: 'canvas', label: '画布与连线', pane: element('appCanvasSettings') },
+      { key: 'gestures', label: '鼠标笔势', pane: element('appGestureSettings') },
+      { key: 'ai-control', label: 'AI 控制', pane: element('appAiSettings') },
+      { key: 'simulation', label: '仿真', pane: element('appSimulationSettings') },
       { key: 'curve', label: '曲线', pane: element('appCurveSettings') },
       { key: 'export', label: '导出', pane: element('appExportSettings') },
       { key: 'recovery', label: '工程恢复', pane: element('appRecoverySettings') },

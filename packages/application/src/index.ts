@@ -665,6 +665,7 @@ export {
   capturedCalculationRecord,
 } from './network-sizing.js';
 export type { NetworkSizingPreview } from './network-sizing.js';
+export { networkToolCatalogDefinition } from './network-tool-selection.js';
 export { NetworkTools, networkToolBase } from './network-tools.js';
 export { networkToolParameterRows, networkToolParameterChanges } from './network-tool-parameters.js';
 export type {

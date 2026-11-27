@@ -33,14 +33,13 @@ export function setupNetworkComponentMenu(canvas: NetworkCanvas, hooks: MenuHook
     copy: 'copySelected',
     cut: 'cutSelected',
     paste: 'pasteSelected',
-    delete: 'deleteSelected',
     clockwise: 'rotateSelected',
     counterclockwise: 'rotateSelected',
     flip: 'rotateSelected',
   };
   const unavailable = (command: Command, componentId: string | null): boolean => {
     if (!canvas.editable) return true;
-    if (command === 'delete' && canvas.selections.length === 0) return true;
+    if (command === 'delete') return canvas.selections.length === 0;
     const source = sources[command];
     return source
       ? element(source).hasAttribute('disabled')
@@ -70,7 +69,7 @@ export function setupNetworkComponentMenu(canvas: NetworkCanvas, hooks: MenuHook
     if (unavailable(command, captured.componentId)) return;
     if (command === 'copy' || command === 'cut') void hooks.copy(command === 'cut');
     else if (command === 'paste') void hooks.paste();
-    else if (command === 'delete') element('deleteSelected').click();
+    else if (command === 'delete') canvas.removeSelected();
     else if (command === 'clockwise' || command === 'counterclockwise') hooks.rotate(command);
     else if (command === 'flip') hooks.flip();
     else if (captured.componentId) hooks.properties(captured.componentId);

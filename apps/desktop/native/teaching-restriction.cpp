@@ -121,6 +121,7 @@ extern "C" DLLEXPORT void register_contents(ComponentFactory *factory, NodeFacto
     factory->registerCreatorFunction("HydraulicTeachingManifold3", HydraulicTeachingManifold::Creator3);
     factory->registerCreatorFunction("HydraulicTeachingManifold4", HydraulicTeachingManifold::Creator4);
     factory->registerCreatorFunction("HydraulicTeachingPilotSeries4", HydraulicTeachingManifold::CreatorPilotSeries);
+    factory->registerCreatorFunction("HydraulicTeachingPilotLockPair4", HydraulicTeachingManifold::CreatorPilotLockPair);
     factory->registerCreatorFunction("HydraulicTeachingManifold5", HydraulicTeachingManifold::Creator5);
     factory->registerCreatorFunction("HydraulicTeachingPilotRelief", HydraulicTeachingPilotRelief::Creator);
     factory->registerCreatorFunction("HydraulicTeachingRestriction", HydraulicTeachingRestriction::Creator);

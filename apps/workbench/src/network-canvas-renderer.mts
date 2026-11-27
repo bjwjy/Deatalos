@@ -375,6 +375,25 @@ export function createCanvasRenderer() {
           `<g data-branch-connection="${esc(anchor.connectionId)}" data-branch-x="${anchor.point.x}" data-branch-y="${anchor.point.y}" transform="translate(${anchor.point.x} ${anchor.point.y})"><circle class="branch-connect-hit" r="${connectionRadius}"/><circle class="branch-connect-point" r="${4.5 / viewport.zoom}"/><title>从拐点接出分支；点击或拖到目标</title></g>`,
       )
       .join('');
+    const selectedRoute =
+      selected?.kind === 'connection'
+        ? (pathPreview ?? drawing.layout.routes.find((r) => r.connectionId === selected.id))
+        : undefined;
+    const edge = selectedRoute && drawing.design.connections.find((e) => e.id === selectedRoute.connectionId);
+    const ends = edge ? [endpointPosition(drawing, edge.from), endpointPosition(drawing, edge.to)] : [];
+    const anchors =
+      selectedRoute?.mode === 'manual' && !firstEndpoint && !view.connectArmed
+        ? selectedRoute.points
+            .map((p, i) => {
+              const active = i === view.activeBend;
+              if (ends.some((end) => end?.x === p.x && end.y === p.y) || (!active && branchPointsAt(p))) return '';
+              return `<circle class="bend-handle${active ? ' active' : ''}" data-path-id="${esc(selectedRoute.connectionId)}" data-part="bend" data-index="${i}" cx="${p.x}" cy="${p.y}" r="${4.5 / viewport.zoom}"><title>拖动折点</title></circle>`;
+            })
+            .join('')
+        : '';
+    function branchPointsAt(p: Point) {
+      return view.branchPoints.some((a) => a.point.x === p.x && a.point.y === p.y);
+    }
     const edgesChanged = rendered[1]?.markup !== edges;
     updateSections(svg, [
       `<rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" fill="transparent"/>`,
@@ -384,7 +403,7 @@ export function createCanvasRenderer() {
       nodes,
       ...components,
       overlay,
-      `<g data-edit-overlay>${pathHandles(view)}${branchHandles}${marquee}${linking}${problemMarker}</g>`,
+      `<g data-edit-overlay>${pathHandles(view)}${branchHandles}${anchors}${marquee}${linking}${problemMarker}</g>`,
     ]);
     if (edgesChanged || !titledEdges)
       titledEdges = svg.querySelectorAll<SVGTitleElement>(':scope > path[data-connection] > title');
@@ -399,7 +418,7 @@ export function createCanvasRenderer() {
       const disabled =
         selected?.kind !== 'connection' ||
         !document.design.connections.some((edge) => edge.id === selected?.id) ||
-        (id === 'mergeRoute' &&
+        ((id === 'mergeRoute' || id === 'autoRoute') &&
           !document.layout.routes.some((route) => route.connectionId === selected?.id && route.mode === 'manual'));
       if (command.disabled !== disabled) command.disabled = disabled;
     }

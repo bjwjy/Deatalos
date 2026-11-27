@@ -60,7 +60,7 @@ export function mappedSnapshot(
   input: unknown,
   expected: NetworkIdentity,
   applied: unknown,
-): Result<NetworkSnapshot> {
+): Result<NetworkSnapshot> & { readonly lowPressureOnly?: true } {
   const safe = checkJson(input);
   if (!safe.ok) return safe;
   if (
@@ -102,6 +102,7 @@ export function mappedSnapshot(
   const known = (value: number): NetworkReading['value'] => ({ kind: 'known', value });
   const unknown = (reason: string): NetworkReading['value'] => ({ kind: 'unknown', reason });
   const domainErrors: Diagnostic[] = [];
+  let lowPressureOnly = true;
   const cavityDiagnostics = new Map<string, Diagnostic>();
   const cavityVolumes = new Map<string, number>();
   for (const p of plan.ports) {
@@ -134,6 +135,7 @@ export function mappedSnapshot(
         (v) => v < 0 || (v === 0 && !p.cavity) || v - plan.pressureOffsetPa > networkPortPressureLimitPa,
       );
       if (outside !== undefined) {
+        if (ps.some((v) => v - plan.pressureOffsetPa > networkPortPressureLimitPa)) lowPressureOnly = false;
         const terminal = plan.graph.nets.flatMap((net) => net.terminals).find((t) => t.key === p.key);
         const component = plan.graph.project.design.components.find((c) => c.id === terminal?.ownerId);
         const field =
@@ -171,7 +173,8 @@ export function mappedSnapshot(
       flow: p.unknownFlow ? unknown(p.unknownFlow) : known(qs.reduce((s, q) => s + q, 0)),
     });
   }
-  if (domainErrors.length) return { ok: false, diagnostics: domainErrors };
+  if (domainErrors.length)
+    return { ok: false, diagnostics: domainErrors, ...(lowPressureOnly ? { lowPressureOnly: true } : {}) };
   const project = plan.graph.project,
     readings: NetworkReading[] = [],
     states: NetworkState[] = [];

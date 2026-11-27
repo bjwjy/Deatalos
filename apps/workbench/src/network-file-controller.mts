@@ -40,6 +40,7 @@ interface FileHooks {
   stateForCapture(): Promise<NetworkIdentity | null>;
   refreshRecords(): Promise<NetworkExportCapture | null>;
   checkpointCurve?(): Promise<void>;
+  bindingChanged?(): void;
   archiveDiagnostics(): readonly DisplayDiagnostic[];
   exportDirectory?(): string | null;
 }
@@ -50,10 +51,11 @@ export interface NetworkProjectTransition {
 }
 export function createNetworkFiles(
   hooks: FileHooks,
-  request: (input: NetworkFileRequest) => Promise<NetworkFileOutcome> = requestNetworkFile,
+  request: (input: NetworkFileRequest, associatedId?: string) => Promise<NetworkFileOutcome> = requestNetworkFile,
 ) {
   let fileBusy = false,
-    filePath = '';
+    filePath = '',
+    requiresFolderSave = false;
   const fileError = (result: NetworkFileOutcome | Result<unknown>) =>
     'diagnostics' in result
       ? result.diagnostics.map((item) => diagnosticDisplayText(item, hooks.objectForDiagnostic(item))).join('；')
@@ -96,6 +98,8 @@ export function createNetworkFiles(
         confirmed = true;
         presentNetworkSave('confirmed');
         filePath = result.path;
+        requiresFolderSave = false;
+        hooks.bindingChanged?.();
         hooks.toast(owner.dirty ? '已保存捕获版本；当前工程仍有未保存修改。' : `已保存：${filePath}`);
         if (operation === hooks.operation()) hooks.clearDiagnostics();
         hooks.render();
@@ -120,6 +124,7 @@ export function createNetworkFiles(
     mode: 'interactive' | 'startup' = 'interactive',
     transition?: NetworkProjectTransition,
     importCopy = false,
+    associatedId?: string,
   ): Promise<boolean> {
     if (fileBusy) return false;
     hooks.clearDiagnostics();
@@ -139,13 +144,16 @@ export function createNetworkFiles(
       const nextSession = hooks.uid('session');
       const requestId = hooks.uid('open');
       if (transition && !(await transition.beforeStart(nextSession, requestId))) return false;
-      const result = await request({
-        action: 'open',
-        sessionId: nextSession,
-        context: hooks.context(),
-        ...(transition ? { requestId } : {}),
-        ...(importCopy ? { importCopy: true } : {}),
-      });
+      const result = await request(
+        {
+          action: 'open',
+          sessionId: nextSession,
+          context: hooks.context(),
+          ...(transition ? { requestId } : {}),
+          ...(importCopy ? { importCopy: true } : {}),
+        },
+        associatedId,
+      );
       if (result.status === 'cancelled') return false;
       if (result.status !== 'ok' || result.operation !== 'open') {
         hooks.diagnostics(
@@ -161,8 +169,10 @@ export function createNetworkFiles(
         return false;
       }
       filePath = importCopy ? '' : result.path;
+      requiresFolderSave = !!result.requiresSaveAs;
       hooks.adopt(session.value);
       if (transition) await transition.adopted(nextSession, requestId);
+      hooks.bindingChanged?.();
       if (result.migration.length)
         hooks.toast(`已载入迁移副本：${result.migration.map((item) => diagnosticDisplayText(item)).join('；')}`);
       return true;
@@ -200,8 +210,10 @@ export function createNetworkFiles(
         return false;
       }
       filePath = result.path;
+      requiresFolderSave = false;
       hooks.adopt(session.value);
       if (transition) await transition.adopted(sessionId, requestId);
+      hooks.bindingChanged?.();
       hooks.toast('已新建工程文件夹：' + filePath);
       return true;
     } finally {
@@ -367,6 +379,9 @@ export function createNetworkFiles(
     archiveDiagnostics: () =>
       writeArtifact(networkDiagnosticArchive(hooks.archiveDiagnostics(), hooks.uid('diagnostics')), 'diagnostics'),
     close,
+    get canConnectMcp(): boolean {
+      return !requiresFolderSave && filePath.toLowerCase().endsWith('.hydproj');
+    },
     get currentPath(): string {
       return filePath;
     },

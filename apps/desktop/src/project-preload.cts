@@ -21,6 +21,18 @@ contextBridge.exposeInMainWorld(
   }),
 );
 
+contextBridge.exposeInMainWorld(
+  'associatedFiles',
+  Object.freeze({
+    next: () => ipcRenderer.invoke('associated:next'),
+    read: (id: string) => ipcRenderer.invoke('associated:read', id),
+    finish: (id: string) => ipcRenderer.invoke('associated:finish', id),
+    onAvailable: (callback: () => void) => {
+      ipcRenderer.on('associated:available', () => callback());
+    },
+  }),
+);
+
 // Narrow v3 service seam; no arbitrary channel, path, library or native command.
 contextBridge.exposeInMainWorld(
   'hydraulicKernel',
@@ -38,7 +50,10 @@ contextBridge.exposeInMainWorld(
 contextBridge.exposeInMainWorld(
   'networkFiles',
   Object.freeze({
-    request: (request: unknown): Promise<unknown> => ipcRenderer.invoke('network:request', request),
+    request: (request: unknown, associatedId?: string): Promise<unknown> =>
+      associatedId === undefined
+        ? ipcRenderer.invoke('network:request', request)
+        : ipcRenderer.invoke('network:request', request, associatedId),
     hasStartupProject: async (): Promise<boolean> => (await ipcRenderer.invoke('network:startup-project')) === true,
     onCloseRequested: (callback: () => void): (() => void) => {
       const listener = () => callback();
@@ -51,7 +66,7 @@ contextBridge.exposeInMainWorld(
 contextBridge.exposeInMainWorld(
   'networkTools',
   Object.freeze({
-    start: (): Promise<unknown> => ipcRenderer.invoke('network-tools:start'),
+    start: (sessionId: string): Promise<unknown> => ipcRenderer.invoke('network-tools:start', sessionId),
     stop: (): Promise<unknown> => ipcRenderer.invoke('network-tools:stop'),
     lifecycle: (input: unknown): Promise<boolean> => ipcRenderer.invoke('network-tools:lifecycle', input),
     reply: (input: unknown): Promise<boolean> => ipcRenderer.invoke('network-tools:reply', input),

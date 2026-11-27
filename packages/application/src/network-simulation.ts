@@ -30,6 +30,7 @@ import {
 } from './network-records.js';
 import type { NetworkControlLog, NetworkControlRecordPage } from './network-control-records.js';
 import { NetworkControllerFleet } from './network-controllers.js';
+import { continueAtLowPressure, samePhysicalPoint, type LowPressureContinuation } from './network-low-pressure.js';
 import { canonical } from './content.js';
 import { networkFlowCorrection, parseNetworkOnlineControlBatch } from './network-flow-regulation.js';
 
@@ -50,7 +51,26 @@ type History = {
   readonly reason: string;
   readonly record: NetworkRecord;
 };
-const replayRequestLimit = 4096;
+// Consecutive advances (or reads at one tick) need only their first identity and count.
+type ReplaySpan = { readonly first: KernelRequest; count: number };
+const replaySpanLimit = 4096;
+function* replayRequests(spans: readonly ReplaySpan[]) {
+  for (const { first, count } of spans) {
+    yield first;
+    for (let index = 1; index < count; index++) {
+      const tick = first.identity.tick + (first.kind === 'advance' ? index : 0);
+      yield {
+        ...first,
+        identity: {
+          ...first.identity,
+          tick,
+          timeS: tick * 0.01,
+          requestSequence: first.identity.requestSequence + index,
+        },
+      };
+    }
+  }
+}
 const replayControlLimit = 16384;
 
 /** F05 fixed-clock policy with asynchronous kernel steps; no kinematic integration here. */
@@ -76,9 +96,17 @@ export class NetworkSimulation {
   #samplesDropped = 0;
   #diagnostics: readonly Diagnostic[] = [];
   #controlLog: NetworkControlLog = { events: [], dropped: 0 };
-  #replayRequests: KernelRequest[] | null = [];
+  #replayRequests: ReplaySpan[] | null = [];
   #replayControlCount = 0;
   #port: KernelPort;
+  #lowPressurePolicy?: LowPressureContinuation;
+  #lowPressureStart: number | null = null;
+  get lowPressureActive(): boolean {
+    return this.#lowPressureStart !== null;
+  }
+  allowLowPressure(policy: LowPressureContinuation) {
+    this.#lowPressurePolicy = policy;
+  }
   #capture: {
     readonly identity: NetworkIdentity;
     readonly point: NetworkSnapshot;
@@ -238,7 +266,19 @@ export class NetworkSimulation {
         ),
       ),
       record: this.#record(),
-      diagnostics: this.#diagnostics,
+      diagnostics:
+        this.#lowPressureStart === null
+          ? this.#diagnostics
+          : [
+              ...this.#diagnostics,
+              {
+                code: 'AUTO_LOW_PRESSURE_ACTIVE',
+                field: '/simulation',
+                severity: 'info' as const,
+                message: '已从第 ' + this.#lowPressureStart + ' 步自动启用等效空穴预览。',
+                suggestion: '可在设置的仿真页调整下次运行的策略。',
+              },
+            ],
       clock: Object.freeze({ ...this.clock.config, nativeStepS: this.nativeStepS }),
       samplesTruncated: this.#samplesDropped > 0,
       samplesDropped: this.#samplesDropped,
@@ -565,7 +605,7 @@ export class NetworkSimulation {
       candidate = opened.value;
       const checkpoints = new Map([...this.#samples, last].map((point) => [point.identity.requestSequence, point]));
       let restored: NetworkSnapshot | null = null;
-      for (const request of requests) {
+      for (const request of replayRequests(requests)) {
         if (!active()) return interrupted();
         const response = await candidate.execute(request);
         if (!active()) return interrupted();
@@ -573,7 +613,11 @@ export class NetworkSimulation {
         const point = acceptKernelResponse(this.document, response.value, request.identity);
         if (!point.ok) return point;
         const expected = checkpoints.get(request.identity.requestSequence);
-        if (expected && canonical(point.value) !== canonical(expected))
+        const beforeSwitch = this.#lowPressureStart !== null && request.identity.tick < this.#lowPressureStart;
+        if (
+          expected &&
+          !(beforeSwitch ? samePhysicalPoint(expected, point.value) : canonical(point.value) === canonical(expected))
+        )
           return fail('RECOVERY_MISMATCH', `重放第 ${request.identity.tick} 步时与原有效记录不一致，仍停在原记录。`);
         restored = point.value;
       }
@@ -692,9 +736,64 @@ export class NetworkSimulation {
     this.#busy = true;
     const generation = this.#generation;
     try {
-      const response = await this.#port.execute(request.value.request);
+      const command = request.value.request;
+      let response;
+      if (kind === 'reset' && this.lowPressureActive && this.#lowPressurePolicy) {
+        const fresh = await this.#lowPressurePolicy.open(false);
+        if (fresh.ok) {
+          await this.#port.close();
+          this.#port = fresh.value;
+          this.#lowPressureStart = null;
+          response = await this.#port.execute({
+            ...command,
+            kind: 'initialize',
+            clock: { advanceIntervalS: 0.01, nativeStepS: this.nativeStepS },
+          });
+        } else response = fresh;
+      } else response = await this.#port.execute(command);
       if (generation !== this.#generation) return fail('RESPONSE_STALE', '运行已替换/销毁，忽略迟到响应。');
-      const point = response.ok ? acceptKernelResponse(this.document, response.value, identity) : response;
+      let point = response.ok ? acceptKernelResponse(this.document, response.value, identity) : response;
+      if (
+        !response.ok &&
+        'lowPressureOnly' in response &&
+        response.lowPressureOnly === true &&
+        kind === 'advance' &&
+        !this.lowPressureActive &&
+        this.#lowPressurePolicy &&
+        this.#replayRequests &&
+        this.#last
+      ) {
+        const resumed = await continueAtLowPressure(
+          this.#lowPressurePolicy,
+          this.document,
+          replayRequests(this.#replayRequests),
+          [...this.#samples, this.#last],
+          command,
+          () => generation === this.#generation,
+        ).catch(() => null);
+        if (resumed) await this.#port.close();
+        if (generation !== this.#generation) {
+          await resumed?.port.close();
+          return fail('RESPONSE_STALE', '运行已取消。');
+        }
+        if (resumed) {
+          this.#port = resumed.port;
+          this.#lowPressureStart = identity.tick;
+          point = resumed.point;
+        } else {
+          point = {
+            ok: false,
+            diagnostics: [
+              ...response.diagnostics,
+              diagnostic(
+                'LOW_PRESSURE_CONTINUATION_UNAVAILABLE',
+                '/simulation',
+                '等效空穴模型未能验证并接续此步，已保留原停算点。',
+              ),
+            ],
+          };
+        }
+      }
       if (!point.ok) {
         this.#sequence?.fail('内核结果失效，序列已停止');
         this.#capture = null;
@@ -748,21 +847,25 @@ export class NetworkSimulation {
     if (request.kind === 'initialize' || request.kind === 'reset') {
       this.#replayRequests = [
         {
-          ...request,
-          kind: 'initialize',
-          clock: { advanceIntervalS: 0.01, nativeStepS: this.nativeStepS },
+          first: { ...request, kind: 'initialize', clock: { advanceIntervalS: 0.01, nativeStepS: this.nativeStepS } },
+          count: 1,
         },
       ];
       this.#replayControlCount = 0;
       return;
     }
     if (!this.#replayRequests) return;
+    const last = this.#replayRequests.at(-1);
+    if ((request.kind === 'advance' || request.kind === 'snapshot') && last?.first.kind === request.kind) {
+      last.count++;
+      return;
+    }
     this.#replayControlCount += request.controls?.length ?? 0;
-    if (this.#replayRequests.length >= replayRequestLimit || this.#replayControlCount > replayControlLimit) {
+    if (this.#replayRequests.length >= replaySpanLimit || this.#replayControlCount > replayControlLimit) {
       this.#replayRequests = null;
       return;
     }
-    this.#replayRequests.push(request);
+    this.#replayRequests.push({ first: request, count: 1 });
   }
   #archive(reason: string): void {
     if (!this.#last) return;

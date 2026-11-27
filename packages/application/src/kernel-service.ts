@@ -21,6 +21,7 @@ export type KernelServiceRequest =
       readonly expected: null;
       readonly project: unknown;
       readonly mapping: MappingOptions;
+      readonly autoLowPressure?: boolean;
       readonly documentSessionId: string;
       readonly physicsRevision: number;
     })
@@ -79,6 +80,7 @@ export function parseKernelServiceRequest(input: unknown): Result<KernelServiceR
       'expected',
       'project',
       'mapping',
+      'autoLowPressure',
       'controls',
       'speed',
       'documentSessionId',
@@ -129,7 +131,7 @@ export function parseKernelServiceRequest(input: unknown): Result<KernelServiceR
     'clientSequence',
     'action',
     ...(action === 'initialize'
-      ? ['project', 'mapping', 'documentSessionId', 'physicsRevision', 'expected']
+      ? ['project', 'mapping', 'documentSessionId', 'physicsRevision', 'expected', 'autoLowPressure']
       : ['expected']),
     ...(action === 'control' ? ['controls'] : []),
     ...(action === 'sequence-start' ? ['project'] : []),
@@ -224,6 +226,8 @@ export function parseKernelServiceRequest(input: unknown): Result<KernelServiceR
     };
   }
   const envelope = { version: o.version === 1 ? (1 as const) : (2 as const), clientSequence: seq };
+  if (action === 'initialize' && o.autoLowPressure !== undefined && typeof o.autoLowPressure !== 'boolean')
+    r.fail('PROTOCOL_INVALID', '/autoLowPressure', '自动低压续算策略必须是布尔值。');
   if (action === 'initialize' && mapping && revision !== undefined)
     return r.finish({
       ...envelope,
@@ -231,6 +235,7 @@ export function parseKernelServiceRequest(input: unknown): Result<KernelServiceR
       expected: null,
       project: o.project,
       mapping,
+      ...(o.autoLowPressure === true ? { autoLowPressure: true } : {}),
       documentSessionId: r.id(o.documentSessionId, '/documentSessionId'),
       physicsRevision: revision,
     });

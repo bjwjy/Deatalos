@@ -84,6 +84,23 @@ export function resolveRoute(a: Point, b: Point, route?: NetworkRoute): Point[] 
   }
   return result;
 }
+/** Return the closest point on the displayed polyline in drawing coordinates. */
+export function nearestRouteSegment(points: readonly Point[], at: Point) {
+  let best: { index: number; point: Point; distance: number } | undefined;
+  for (let index = 0; index + 1 < points.length; index++) {
+    const a = points[index]!,
+      b = points[index + 1]!,
+      dx = b.x - a.x,
+      dy = b.y - a.y;
+    const squared = dx * dx + dy * dy;
+    if (!squared) continue;
+    const t = Math.max(0, Math.min(1, ((at.x - a.x) * dx + (at.y - a.y) * dy) / squared));
+    const point = { x: a.x + t * dx, y: a.y + t * dy },
+      distance = Math.hypot(point.x - at.x, point.y - at.y);
+    if (!best || distance < best.distance) best = { index, point, distance };
+  }
+  return best;
+}
 export function manualRoute(id: string, points: readonly Point[]): NetworkRoute {
   // Keep explicit drawing anchors. Layout movement adapts terminal elbows in
   // the application layer; unrelated manually chosen middle bends remain fixed.

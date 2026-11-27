@@ -18,7 +18,8 @@ import {
 import { requestRuntime, requestRecords } from './network-service-client.mjs';
 interface RuntimeHooks {
   document(): NetworkProject;
-  useLowPressurePreview?(): boolean;
+  allowAutoLowPressure?(): boolean;
+  lowPressureChanged?(message: string | null): void;
   sessionId(): string;
   physicsRevision(): number;
   render(): void;
@@ -45,6 +46,7 @@ type ServiceArguments<C = KernelServiceCommand> = C extends { readonly action: i
 export function createNetworkRuntime(hooks: RuntimeHooks, transport = { requestRuntime, requestRecords }) {
   let runtime: NetworkRuntimeView | null = null;
   let manualRecoverySession: string | null = null;
+  let notifiedRun: string | null = null;
   let runtimeError = '',
     physicsInvalidated = false;
   let requestSequence = 0,
@@ -213,6 +215,14 @@ export function createNetworkRuntime(hooks: RuntimeHooks, transport = { requestR
         )
           return null;
       }
+      const activation = incoming.diagnostics.find((item) => item.code === 'AUTO_LOW_PRESSURE_ACTIVE');
+      if (activation && notifiedRun !== incoming.identity.simulationSessionId) {
+        notifiedRun = incoming.identity.simulationSessionId;
+        hooks.lowPressureChanged?.(activation.message);
+      } else if (!activation && notifiedRun !== null && notifiedRun !== incoming.identity.simulationSessionId) {
+        notifiedRun = null;
+        hooks.lowPressureChanged?.(null);
+      }
       runtime = incoming;
       if (runtime?.status !== 'ready') recordCapture = null;
     }
@@ -241,8 +251,8 @@ export function createNetworkRuntime(hooks: RuntimeHooks, transport = { requestR
         project: prepared.value.document,
         documentSessionId: owner.sessionId,
         physicsRevision: owner.physicsRevision,
+        autoLowPressure: hooks.allowAutoLowPressure?.() === true,
         mapping: {
-          ...(hooks.useLowPressurePreview?.() ? { lowPressureModel: 'equivalent-cavity-v1' } : {}),
           nativeStepS: prepared.value.nativeStepS,
           junctionPolicy: 'tlm-limit',
           initialPressurePa: 100000,
@@ -643,6 +653,8 @@ export function createNetworkRuntime(hooks: RuntimeHooks, transport = { requestR
     stopPolling();
     runtime = null;
     manualRecoverySession = null;
+    notifiedRun = null;
+    hooks.lowPressureChanged?.(null);
     runtimeError = '';
     physicsInvalidated = false;
     recordCapture = null;

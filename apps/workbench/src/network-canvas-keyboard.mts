@@ -15,6 +15,7 @@ interface KeyboardHooks {
   fitAll(): void;
   removeSelected(): void;
   escape(): void;
+  startConnection(): void;
 }
 /** Global shortcuts never consume editing, modal, composing or already handled input. */
 export function setupCanvasKeyboard(hooks: KeyboardHooks): void {
@@ -57,6 +58,16 @@ export function setupCanvasKeyboard(hooks: KeyboardHooks): void {
         ]);
         hooks.render();
       }
+      return;
+    }
+    if (
+      event.key.toLowerCase() === 'c' &&
+      !event.shiftKey &&
+      !hooks.connecting() &&
+      (element === board || board.contains(element))
+    ) {
+      event.preventDefault();
+      hooks.startConnection();
       return;
     }
     if (event.key === 'Home' && (element === board || board.contains(element))) {

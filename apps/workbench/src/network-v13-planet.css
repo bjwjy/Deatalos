@@ -189,13 +189,20 @@
   z-index: 2;
 }
 .theme-wave-layer {
+  /* Only the name is captured. The visible rim is drawn by its pseudo-element. */
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
   z-index: 2147483647;
   pointer-events: none;
   view-transition-name: theme-wave;
 }
 ::view-transition-group(theme-wave) {
+  width: 100%;
+  height: 100%;
+  transform: none;
   z-index: 3;
   animation: none;
   overflow: visible;
@@ -225,6 +232,44 @@
   opacity: 0;
   mix-blend-mode: normal;
   pointer-events: none;
+}
+@keyframes theme-reveal {
+  from {
+    clip-path: circle(0% at var(--theme-wave-x) var(--theme-wave-y));
+  }
+  to {
+    clip-path: circle(var(--theme-wave-radius) at var(--theme-wave-x) var(--theme-wave-y));
+  }
+}
+@keyframes theme-rim {
+  from {
+    width: 0;
+    height: 0;
+  }
+  to {
+    width: var(--theme-wave-width);
+    height: var(--theme-wave-height);
+  }
+}
+@keyframes theme-rim-opacity {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  12%,
+  76% {
+    opacity: 0.95;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .theme-snapshot::view-transition-new(root) {
+    animation: theme-reveal 720ms var(--ease-in-out) both;
+  }
+  .theme-snapshot::view-transition-new(theme-wave) {
+    animation:
+      theme-rim 720ms var(--ease-in-out) both,
+      theme-rim-opacity 720ms linear both;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .planet-caption,

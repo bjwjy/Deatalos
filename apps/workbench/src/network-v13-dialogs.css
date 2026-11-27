@@ -8,6 +8,21 @@
   --dialog-muted: #85888d;
   --dialog-primary: #45484d;
 }
+.low-pressure-notice {
+  inset: auto 1.25rem 3.5rem auto;
+  margin: 0;
+  width: min(22rem, 85vw);
+  padding: 1rem;
+  color: var(--dialog-ink);
+  background: var(--dialog-paper);
+  border: 1px solid var(--dialog-line);
+  border-radius: 0.75rem;
+  box-shadow: 0 6px 24px #0002;
+}
+.low-pressure-notice p {
+  margin: 0.5rem 0 0.75rem;
+}
+
 :root[data-palette='oat'] {
   --dialog-paper: #fffefb;
   --dialog-soft: #f8f5ee;
@@ -1509,7 +1524,6 @@
 #externalTools.settings-tabs h4 {
   margin: 0 0 12px;
 }
-#externalTools .ai-connection-card,
 #externalTools .ai-manual-step {
   margin-block: 16px;
   padding: 16px;
@@ -1522,51 +1536,9 @@
   flex-wrap: wrap;
   gap: 8px;
 }
-#aiConnection .ai-connection-card {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
-  margin-block: 12px;
-  padding: 12px;
-}
 #toolStatus,
 #aiConnection .ai-connection-note {
   margin: 4px 0 0;
-}
-#manualToolConnection {
-  margin-top: 12px;
-  padding-block: 10px 0;
-}
-#manualToolConnection[open] > summary {
-  margin-bottom: 8px;
-}
-#toolCredentials {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 12px;
-}
-#toolCredentials[hidden] {
-  display: none;
-}
-#toolCredentials > :is(.ai-connection-directory, p) {
-  grid-column: 1 / -1;
-}
-#toolCredentials label {
-  gap: 4px;
-  margin: 0;
-}
-#toolCredentials .ai-connection-token {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 6px;
-}
-@media (max-width: 600px) {
-  #toolCredentials {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 #externalTools pre {
   white-space: pre-wrap;

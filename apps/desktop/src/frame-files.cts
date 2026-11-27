@@ -10,6 +10,10 @@ export async function openFrameFile(parent: BrowserWindow) {
   const file = await dialog.showOpenDialog(parent, { title: '导入图框', properties: ['openFile'], filters });
   const selected = file.filePaths[0];
   if (file.canceled || !selected) return null;
+  return readFrameFile(selected);
+}
+
+export async function readFrameFile(selected: string) {
   if (path.extname(selected).toLowerCase() !== '.hydframe') return { error: '请选择 .hydframe 图框文件。' };
   const bytes = await boundedRead(selected, limit);
   let data: unknown;

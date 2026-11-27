@@ -47,12 +47,14 @@ import { createNetworkFeedback } from './network-feedback.mjs';
 import { createNetworkProperties } from './network-properties.mjs';
 import { createNetworkShortcutParameters } from './network-shortcut-parameters.mjs';
 import { createNetworkShortcutPanels } from './network-shortcut-panels.mjs';
+import { setupMouseGestures } from './network-mouse-gestures.mjs';
 import { setupNetworkRouteMenu } from './network-route-menu.mjs';
 import { setupNetworkComponentMenu } from './network-component-menu.mjs';
 import { createNetworkValveSettings } from './network-valve-settings.mjs';
 import { createValveLibrary } from './network-valve-library.mjs';
 import { createNetworkFormalExport } from './network-formal-export.mjs';
 import { createNetworkCurveTools } from './network-curve-tools.mjs';
+import { bindAssociatedFiles } from './network-associated-files.mjs';
 import { createCurveHistory } from './network-curve-history.mjs';
 import { createNetworkResults } from './network-results-panel.mjs';
 import { createNetworkPressureSettings } from './network-pressure-settings.mjs';
@@ -91,9 +93,30 @@ async function checkpointCurve(): Promise<void> {
     toast('未能保留本次曲线历史，原有记录保持。');
   }
 }
+const lowPressureSetting = $('lowPressurePreview') as HTMLInputElement;
+const lowPressureKey = 'deatalos.simulation.autoLowPressure';
+try {
+  lowPressureSetting.checked = localStorage.getItem(lowPressureKey) !== 'off';
+} catch {
+  /* The current session can still use the default. */
+}
+lowPressureSetting.addEventListener('change', () => {
+  try {
+    localStorage.setItem(lowPressureKey, lowPressureSetting.checked ? 'on' : 'off');
+  } catch {
+    toast('无法保存低压续算设置，本次使用仍然有效。');
+  }
+});
 const simulation = createNetworkRuntime({
   document: () => editor.document,
-  useLowPressurePreview: () => ($('lowPressurePreview') as HTMLInputElement).checked,
+  allowAutoLowPressure: () => lowPressureSetting.checked,
+  lowPressureChanged: (message) => {
+    const notice = $('lowPressureNotice');
+    if (message) {
+      $('lowPressureNoticeDetail').textContent = message + '仿真按原步长继续。';
+      notice.showPopover();
+    } else notice.hidePopover();
+  },
   sessionId: () => editor.documentSessionId,
   physicsRevision: () => editor.physicsRevision,
   render: queueRuntimeRender,
@@ -248,6 +271,7 @@ const files = createNetworkFiles({
   stateForCapture: simulation.stateForCapture,
   refreshRecords: simulation.refreshRecords,
   checkpointCurve,
+  bindingChanged: () => externalTools.syncBinding(),
   archiveDiagnostics: feedback.archiveDiagnostics,
 });
 const captureForExport = async () => {
@@ -362,7 +386,9 @@ const externalTools = createNetworkTools({
   },
   uid,
 });
+let cancelCanvasGestures: (() => void) | undefined;
 function adopt(next: NetworkDraftSession): void {
+  cancelCanvasGestures?.();
   editor = next;
   simulation.reset();
   canvas.reset();
@@ -635,12 +661,13 @@ function setup() {
   pressureSettings.setup();
   controllers.setup();
   probes.setup();
+  cancelCanvasGestures = setupMouseGestures(canvas, () => editor, mutate, texts, render);
   texts.setup();
   canvas.setup();
   editing.setup();
   setupNetworkShell();
   feedback.connectDiagnosticPanel(setupNetworkDiagnosticPanel(feedback.diagnosticView, toast, canvas.locateDiagnostic));
-  setupNetworkRouteMenu(canvas, render);
+  setupNetworkRouteMenu(canvas, () => editor, render);
   setupNetworkComponentMenu(canvas, {
     editor: () => editor,
     changed: render,
@@ -674,7 +701,6 @@ function setup() {
   $('saveProject').addEventListener('click', () => void files.save(false));
   $('saveAs').addEventListener('click', () => void files.save(true));
   $('addNode').addEventListener('click', addNode);
-  $('deleteSelected').addEventListener('click', canvas.removeSelected);
   $('undo').addEventListener('click', () => undoRedo(true));
   $('redo').addEventListener('click', () => undoRedo(false));
   $('recoverRun').addEventListener('click', () => void simulation.enqueue(simulation.recover));
@@ -744,6 +770,22 @@ void files
       await simulation.enqueue(() => files.open(editor === startupEditor ? 'startup' : 'interactive'));
       if (editor.document.design.components.length > 0) $('fitAll').click();
     }
+    bindAssociatedFiles({
+      project: async (id) => {
+        let handled = false;
+        await simulation.enqueue(async () => {
+          if (files.busy || document.querySelector('dialog[open]')) return;
+          handled = true;
+          if (await files.open(editor === startupEditor ? 'startup' : 'interactive', undefined, false, id))
+            $('fitAll').click();
+        });
+        return handled;
+      },
+      frame: formalExport.openFrame,
+      curve: curveTools.importFile,
+      busy: () => files.busy,
+      report: toast,
+    });
   })
   .catch((cause) => {
     render();

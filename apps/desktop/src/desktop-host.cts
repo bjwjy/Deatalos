@@ -1,3 +1,4 @@
+import { AssociatedFiles } from './associated-files.cjs';
 import { openFrameFile, saveFrameFile } from './frame-files.cjs';
 import { NetworkProjectReceipts } from './network-project-receipts.cjs';
 import { rendererResources } from './renderer-resources.cjs';
@@ -42,8 +43,11 @@ export function startDesktop(host: 'teaching' | 'advanced'): void {
     host === 'advanced'
       ? process.argv.find((argument) => argument.startsWith(demoOption))?.slice(demoOption.length)
       : undefined;
-  if (startupProject !== undefined && (!path.isAbsolute(startupProject) || path.extname(startupProject) !== '.hydx'))
-    throw new Error('示范快捷方式需要绝对路径的 .hydx 工程。');
+  if (
+    startupProject !== undefined &&
+    (!path.isAbsolute(startupProject) || !['.hydx', '.hydproj'].includes(path.extname(startupProject).toLowerCase()))
+  )
+    throw new Error('示范快捷方式需要绝对路径的 .hydx 工程或 .hydproj 文件夹工程入口。');
   const dataRoot = path.join(app.getPath('appData'), 'HydraulicWorkbench');
   const demoRoot = startupProject
     ? path.join(
@@ -58,6 +62,8 @@ export function startDesktop(host: 'teaching' | 'advanced'): void {
   app.setPath('userData', userData);
   const sampleDirectory = process.env.HYD_SPIKE_DIR ?? path.join(app.getPath('userData'), 'f01-samples');
   if (!path.isAbsolute(sampleDirectory)) throw new Error('HYD_SPIKE_DIR must be absolute');
+  const associated = new AssociatedFiles();
+  if (host === 'advanced' && !startupProject) associated.add(process.argv.slice(1));
   if (!app.requestSingleInstanceLock()) {
     app.exit(0);
     return;
@@ -169,7 +175,12 @@ export function startDesktop(host: 'teaching' | 'advanced'): void {
       app.quit();
     });
   });
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
+    if (host === 'advanced' && demoRoot === dataRoot) {
+      associated.add(argv.slice(1));
+      mainWindow?.webContents.send('associated:available');
+    }
+    if (mainWindow?.isMinimized()) mainWindow.restore();
     mainWindow?.show();
     mainWindow?.focus();
   });
@@ -366,6 +377,14 @@ export function startDesktop(host: 'teaching' | 'advanced'): void {
         event.sender === mainWindow.webContents &&
         event.senderFrame === event.sender.mainFrame &&
         event.senderFrame.url === networkUrl;
+      ipcMain.handle('associated:next', (event) => (toolSender(event) ? associated.next() : null));
+      ipcMain.handle('associated:finish', (event, id: unknown) => {
+        if (toolSender(event)) associated.finish(id);
+      });
+      ipcMain.handle('associated:read', (event, id: unknown) => {
+        if (!toolSender(event)) throw new Error('文件请求窗口无效。');
+        return associated.read(id);
+      });
       ipcMain.handle('network:theme', (event, ...args: unknown[]) => {
         const theme = args[0];
         if (
@@ -439,10 +458,10 @@ export function startDesktop(host: 'teaching' | 'advanced'): void {
             },
       );
       ipcMain.handle('network-tools:start', async (event, ...args: unknown[]) => {
-        if (!toolSender(event) || args.length) return toolError('TOOL_SENDER_INVALID', '请在进阶工作台启用 MCP。');
-        if (!toolTarget()) return toolError('PROJECT_REQUIRED', '请先保存为文件夹工程，再允许 AI 操作。');
+        if (!toolSender(event) || args.length !== 1 || typeof args[0] !== 'string') return toolError('TOOL_SENDER_INVALID', '请在进阶工作台启用 MCP。');
+        if (toolTarget()?.documentSessionId !== args[0]) return toolError('PROJECT_REQUIRED', '请打开或保存目标文件夹工程后重试。');
         const result = await toolDiscovery.start();
-        return result.ok ? {ok:true,value:{connectionId: result.value.connectionId}} : result;
+        return result.ok ? { ok: true, value: { connectionId: result.value.connectionId } } : result;
       });
       ipcMain.handle('network-tools:stop', async (event, ...args: unknown[]) => {
         return toolSender(event) && args.length === 0
@@ -684,7 +703,7 @@ export function startDesktop(host: 'teaching' | 'advanced'): void {
           event.sender !== mainWindow.webContents ||
           event.senderFrame !== event.sender.mainFrame ||
           event.senderFrame.url !== networkUrl ||
-          args.length !== 1 ||
+          (args.length !== 1 && !(args.length === 2 && typeof args[1] === 'string')) ||
           !args[0] ||
           typeof args[0] !== 'object'
         )
@@ -785,7 +804,7 @@ export function startDesktop(host: 'teaching' | 'advanced'): void {
               observeTransition({ status: 'cancelled' });
               return { status: 'cancelled' };
             }
-            let chosenPath = startupProject;
+            let chosenPath = args.length === 2 ? associated.project(args[1]) : startupProject;
             startupProject = undefined;
             if (!chosenPath) {
               const chosen = await dialog.showOpenDialog(mainWindow, {

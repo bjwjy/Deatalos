@@ -6,6 +6,7 @@ import { portKey, type ConnectionGraph, type IdealNet } from './network-graph.js
 interface PilotSeriesJunction {
   readonly valveKey: string;
   readonly checkKey: string;
+  readonly pilotKey?: string;
   readonly readback: NativePort;
 }
 
@@ -22,7 +23,75 @@ function supportsSeriesSpool(valve: NetworkComponent): boolean {
   );
 }
 
-/** Condense only the unbranched return segment of a cross-piloted cylinder circuit. */
+/** The two spool/check junctions carry main flow and sense the opposite poppet.
+ * Only eliminate exact ideal nets. Extra branches and physical pipes retain their own models. */
+function coupleLockPair(
+  valve: NetworkComponent,
+  byId: ReadonlyMap<string, NetworkComponent>,
+  netByPort: ReadonlyMap<string, IdealNet>,
+  components: NativeComponent[],
+  terminals: Map<string, Terminal>,
+  junctions: Map<string, PilotSeriesJunction>,
+  initialPressurePa: number,
+): void {
+  const valveIndex = components.findIndex((c) => c.id === nativeId('c', valve.id));
+  const mapped = components[valveIndex];
+  if (mapped?.type !== 'HydraulicTeachingManifold4' || !supportsSeriesSpool(valve)) return;
+  function branch(side: 'A' | 'B') {
+    const net = netByPort.get(portKey(valve.id, side));
+    if (net?.terminals.length !== 3) return;
+    const inlet = net.terminals.find(
+      (port) => port.portId === 'A' && byId.get(port.ownerId)?.definition.id === 'teaching:pilot-check-internal',
+    );
+    const check = inlet && byId.get(inlet.ownerId);
+    if (!check || parameter(check, 'hydraulic', 'pilotRatio') < 1) return;
+    const nativeCheck = components.find((c) => c.id === nativeId('c', check.id));
+    if (nativeCheck?.type !== 'HydraulicTeachingPilotCheckInternal') return;
+    const loaded = netByPort.get(portKey(check.id, 'B'));
+    if (loaded?.terminals.length !== 2) return;
+    const load = loaded.terminals.find(
+      (port) => ['A', 'B'].includes(port.portId) && byId.get(port.ownerId)?.typeId === 'cylinder',
+    );
+    return load ? { side, net, check, nativeCheck, load } : undefined;
+  }
+  const a = branch('A'),
+    b = branch('B');
+  if (
+    !a ||
+    !b ||
+    a.check.id === b.check.id ||
+    a.net === b.net ||
+    a.load.ownerId !== b.load.ownerId ||
+    a.load.portId === b.load.portId ||
+    !hasPort(a.net, b.check.id, 'X') ||
+    !hasPort(b.net, a.check.id, 'X')
+  )
+    return;
+  const inputs: Record<string, number> = { ...mapped.inputs, junctionInitial: initialPressurePa };
+  for (const [main, opposite] of [
+    [a, b],
+    [b, a],
+  ] as const) {
+    const { net, check, side } = main;
+    const suffix = side === 'A' ? '' : 'B';
+    inputs['checkArea' + suffix] = parameter(check, 'hydraulic', 'maximumAreaM2');
+    inputs['checkCq' + suffix] = parameter(check, 'hydraulic', 'flowCoefficient');
+    inputs['checkCrack' + suffix] = parameter(check, 'hydraulic', 'openingDifferentialPa');
+    inputs['pilotRatio' + suffix] = parameter(check, 'hydraulic', 'pilotRatio');
+    const readback = { component: mapped.id, port: side };
+    const checkKey = portKey(check.id, 'A'),
+      pilotKey = portKey(opposite.check.id, 'X');
+    const internal = { category: 'Q' as const, ref: readback, pressurePa: null };
+    terminals.set(checkKey, internal);
+    terminals.set(pilotKey, internal);
+    terminals.set(portKey(check.id, 'B'), { ...internal, ref: { component: mapped.id, port: 'Load' + side } });
+    junctions.set(net.id, { valveKey: portKey(valve.id, side), checkKey, pilotKey, readback });
+  }
+  components[valveIndex] = { ...mapped, type: 'HydraulicTeachingPilotLockPair4', inputs };
+  for (const { nativeCheck } of [a, b]) components.splice(components.indexOf(nativeCheck), 1);
+}
+
+/** Condense the ideal work junctions of supported single-check and lock-pair circuits. */
 export function couplePilotSeries(
   graph: ConnectionGraph,
   components: NativeComponent[],
@@ -32,6 +101,9 @@ export function couplePilotSeries(
   const junctions = new Map<string, PilotSeriesJunction>();
   const byId = new Map(graph.project.design.components.map((component) => [component.id, component]));
   const netByPort = new Map(graph.nets.flatMap((net) => net.terminals.map((port) => [port.key, net] as const)));
+  for (const valve of byId.values())
+    if (valve.typeId === 'valve')
+      coupleLockPair(valve, byId, netByPort, components, terminals, junctions, initialPressurePa);
   for (const net of graph.nets) {
     if (net.terminals.length !== 2 || net.terminals.some((port) => port.kind !== 'component')) continue;
     const valvePort = net.terminals.find(

@@ -110,7 +110,15 @@ for (const css of [
   'network-v13-shortcuts.css',
 ])
   await copyFile(path.join(source, css), path.join(output, css));
-const networkTemplate = await readFile(path.join(source, 'network.template.html'), 'utf8');
+let networkTemplate = await readFile(path.join(source, 'network.template.html'), 'utf8');
+// Inline the pre-rendered glass materials under the workbench's data-only image policy.
+for (const theme of ['silver', 'oat', 'coral']) {
+  const material = await readFile(path.join(source, 'materials', 'glass-' + theme + '.webp'));
+  networkTemplate = networkTemplate.replace(
+    '__GLASS_' + theme.toUpperCase() + '__',
+    'data:image/webp;base64,' + material.toString('base64'),
+  );
+}
 const brandIcon = await readFile(path.join(root, 'apps/desktop/resources/icons/deatalos.png'));
 await writeFile(
   path.join(output, 'network.html'),

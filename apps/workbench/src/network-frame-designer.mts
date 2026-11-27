@@ -369,14 +369,14 @@ export function bindFrameDesigner(host: DesignerHost) {
   element('formalExport').addEventListener('close', () => {
     if (dialog.open) dialog.close();
   });
-  control('designer-open').addEventListener('click', () => {
+  function open(initial?: DrawingTemplate) {
     tableEditor.reset();
     edits = { fields: {}, cells: {} };
     legacyIds.clear();
     sources.clear();
     cachedDraft = undefined;
     future.length = 0;
-    const current = host.current();
+    const current = initial ?? host.current();
     draft = current ?? {
       version: 1,
       name: '自定义图框',
@@ -389,5 +389,7 @@ export function bindFrameDesigner(host: DesignerHost) {
     status.textContent = '';
     dialog.showModal();
     render();
-  });
+  }
+  control('designer-open').addEventListener('click', () => open());
+  return open;
 }

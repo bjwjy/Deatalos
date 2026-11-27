@@ -553,7 +553,7 @@ export function createToolFileDialogs(hooks: Hooks) {
         (params.action.mode === 'import' || params.action.mode === 'restore'
           ? '\n采用后为未保存副本，须另存为新工程。'
           : '') +
-        '\n当前未保存内容需要再次确认放弃。切换后旧 AI 控制和仿真授权立即退役，新工程须重新开启。';
+        '\n当前未保存内容需要再次确认放弃。切换后旧连接和候选立即退役。新工程沿用本次工作台工具栏的 AI 开关状态。';
       dialog.showModal();
     } else if (params.action.kind === 'curve' && curve?.ok) {
       accept.textContent = '确认导出';

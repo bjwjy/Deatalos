@@ -11,6 +11,7 @@ const fail = (code: string, message: string) => ({
 interface Waiter {
   resolve(value: unknown): void;
   timer: ReturnType<typeof setTimeout>;
+  readonly recoverySequence?: number;
 }
 interface Slot {
   readonly child: UtilityProcess;
@@ -59,6 +60,12 @@ export class KernelController {
       request.action === 'records' ||
       request.action === 'capture' ||
       request.action === 'control-records';
+    if (
+      request.action !== 'initialize' &&
+      this.#slot &&
+      [...this.#slot.pending.values()].some((pending) => pending.recoverySequence !== undefined)
+    )
+      return fail('RUNTIME_BUSY', '内核正在恢复最后有效点。');
     if (!readOnly) this.#latestMutation = request.clientSequence;
     if (request.action === 'initialize') {
       return this.#initialize(request, onProgress);
@@ -68,7 +75,11 @@ export class KernelController {
     const slot = this.#slot,
       generation = this.#generation;
     if (!slot) return fail('RUNTIME_NOT_READY', '尚未初始化或运行已销毁。');
-    const result = await this.#send(slot, { request });
+    const result = await this.#send(
+      slot,
+      { request },
+      request.action === 'recover' ? request.clientSequence : undefined,
+    );
     if (generation !== this.#generation || this.#closing || request.clientSequence < this.#latestMutation)
       return fail('RESPONSE_STALE', '旧工程或旧控制响应失效，未作为当前结果返回。');
     return result;
@@ -162,6 +173,20 @@ export class KernelController {
         if (message.event === 'native-started') slot.nativePid = message.pid;
         if (message.event === 'native-exited' && slot.nativePid === message.pid) slot.nativePid = undefined;
       }
+      if (
+        'event' in message &&
+        message.event === 'recovery-progress' &&
+        'sequence' in message &&
+        typeof message.sequence === 'number'
+      ) {
+        for (const pending of slot.pending.values())
+          if (pending.recoverySequence === message.sequence) pending.timer.refresh();
+        return;
+      }
+      if ('event' in message && message.event === 'continuation-progress') {
+        for (const pending of slot.pending.values()) pending.timer.refresh();
+        return;
+      }
       if ('id' in message && typeof message.id === 'number') {
         const pending = slot.pending.get(message.id);
         if (pending) {
@@ -182,7 +207,7 @@ export class KernelController {
     });
     return slot;
   }
-  #send(slot: Slot, payload: Record<string, unknown>): Promise<unknown> {
+  #send(slot: Slot, payload: Record<string, unknown>, recoverySequence?: number): Promise<unknown> {
     if (slot.exited) return Promise.resolve(fail('BACKEND_EXITED', '运行服务已退出。'));
     const id = ++this.#messageSequence;
     return new Promise((resolve) => {
@@ -192,7 +217,7 @@ export class KernelController {
         slot.child.kill();
         resolve(fail('BACKEND_TIMEOUT', '运行服务超时，已终止并使结果失效，不自动重试。'));
       }, 12000);
-      slot.pending.set(id, { resolve, timer });
+      slot.pending.set(id, { resolve, timer, ...(recoverySequence === undefined ? {} : { recoverySequence }) });
       slot.child.postMessage({ id, ...payload });
     });
   }

@@ -123,7 +123,7 @@ export async function listActiveProjects(root: string, includeOpen: boolean, arg
     ok: true,
     value: {
       projects,
-      ...(entries.length === 0 ? { suggestion: '请在目标工程的工作台开启「允许 AI 操作」，再查找工程。' } : {}),
+      ...(entries.length === 0 ? { suggestion: '请在目标文件夹工程的工作台检查工具栏的 AI 开关，再查找工程。' } : {}),
       total: entries.length,
       nextOffset: offset + page.length < entries.length ? offset + page.length : null,
     },

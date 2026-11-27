@@ -274,6 +274,29 @@ const schemaMotorControl = {
   ],
 };
 const schemaCommand = {
+  examples: [
+    {
+      kind: 'text',
+      edit: {
+        kind: 'put',
+        replace: false,
+        value: {
+          id: 'diagram-title',
+          kind: 'text',
+          version: 1,
+          x: 0,
+          y: -100,
+          width: 400,
+          text: '四支路共用供回油',
+          fontSize: 24,
+          color: '#111111',
+          align: 'center',
+          border: false,
+          background: null,
+        },
+      },
+    },
+  ],
   oneOf: [
     schemaObject({ kind: schemaLiteral('viewport'), ...schemaViewport }),
     schemaObject({ kind: schemaLiteral('motor-control'), id: schemaId, control: schemaMotorControl }),
@@ -330,7 +353,7 @@ const schemaCommand = {
           schemaObject({ kind: schemaLiteral('delete'), id: schemaId }),
           schemaObject({
             kind: schemaLiteral('put'),
-            replace: { type: 'boolean' },
+            replace: { type: 'boolean', description: '新增文字用 false；仅替换当前画布中相同 ID 的文字时用 true。' },
             value: schemaObject({
               id: schemaId,
               kind: schemaLiteral('text'),

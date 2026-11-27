@@ -52,19 +52,27 @@ function nativeRejection(
   project: NetworkProject,
   request: KernelRequest,
   lastTimeS: number | undefined,
-  nativeStepS: number,
+  plan: MappingPlan,
   nativeComponentId: (id: string) => string,
 ): Extract<Result<never>, { readonly ok: false }> {
   const operation = request.kind === 'advance' ? '推进' : request.kind === 'control' ? '控制' : '初始化';
   const clock =
     `请求${operation}至 ${request.identity.timeS.toFixed(6)} s，` +
     (lastTimeS === undefined ? '' : `上次有效时刻 ${lastTimeS.toFixed(6)} s，`) +
-    `原生子步 ${nativeStepS * 1e6} μs`;
+    `原生子步 ${plan.options.nativeStepS * 1e6} μs`;
   if (!cause.details.length) {
     return failure(cause.code, `${cause.message}（${clock}）。内核未返回具体故障位置。`);
   }
+  const lowPressureOnly = cause.details.every((detail) => {
+    const match =
+      /^(?:Info: )?In \S+;\s+Simulation was stopped at t=[\d.eE+-]+\s*:\s*HYD_PRESSURE [A-Z]+ below_floor (\S+)(?: \S+)?$/.exec(
+        detail,
+      );
+    return match && Number.isFinite(Number(match[1])) && Number(match[1]) < 0;
+  });
   return {
     ok: false,
+    ...(lowPressureOnly ? { lowPressureOnly: true } : {}),
     diagnostics: cause.details.flatMap((detail) => {
       const stopped = /^(?:Info: )?In (\S+);\s+Simulation was stopped at t=([\d.eE+-]+)\s*:\s*(.+)$/.exec(detail);
       const componentIndex = stopped
@@ -74,6 +82,28 @@ function nativeRejection(
       const nativeObject = componentIndex < 0 && stopped ? `内核对象 ${stopped[1]}，` : '';
       const timeS = stopped ? Number(stopped[2]) : NaN;
       const when = Number.isFinite(timeS) ? `停机时刻 ${timeS.toFixed(9)} s，${clock}。` : `${clock}。`;
+      if (
+        stopped &&
+        [
+          'Motor cavity outside declared fixed-volume inventory domain',
+          'Teaching oil storage outside finite liquid/cavity domain',
+        ].includes(stopped[3] ?? '')
+      ) {
+        const owners = plan.integratedPorts.filter((port) => port.storage.component === stopped[1]);
+        if (owners.length)
+          return owners.flatMap((port) => {
+            const index = project.design.components.findIndex((component) => component.id === port.componentId);
+            return failure(
+              'MODEL_DOMAIN_EXCEEDED',
+              `${port.portId} 口所在油腔的油量收支超出有限储油模型范围。${when}`,
+              {
+                field: `/design/components/${index}/${port.portId}`,
+                suggestion:
+                  '核对负载带动方向、回油侧节流和补油能力。可缩短超越负载持续时间，或按实际回路设置制动及补油。',
+              },
+            ).diagnostics;
+          });
+      }
       const pressure = /^HYD_PRESSURE ([A-Z]+) (below_floor|above_limit|nonfinite) (\S+)(?: (\S+))?$/.exec(
         stopped?.[3] ?? '',
       );
@@ -362,7 +392,7 @@ export class HopsanBackend implements KernelPort {
               this.project,
               request,
               this.#cursor?.identity.timeS,
-              this.plan.options.nativeStepS,
+              this.plan,
               (await import('@hyd/engine')).nativeComponentId,
             )
           : failure(cause instanceof NativeFault ? cause.code : 'BACKEND_FAILED', String(cause).slice(0, 240));

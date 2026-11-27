@@ -287,6 +287,8 @@ export function diagnosticPresentation(d: DisplayDiagnostic, object = '当前工
         '原生时间、固定步号或步长没有通过一致性校验。',
         '保留诊断并检查运行配置，明确重新初始化；时间预算不会自动放宽。',
       ];
+    else if (d.code.startsWith('RECOVERY_') && (d.field === '/simulation' || d.field === '/kernel'))
+      entry = ['仿真续算未完成', d.message, '保留最后有效点和诊断。若无法重放，可复位后重新运行。'];
     else if (/NATIVE|BACKEND|RUNTIME|COMMUNICATION/.test(d.code))
       entry = ['运行服务失败', '内核、通信或运行资源未能完成有效操作。', '保留工程和诊断，检查后明确重新初始化。'];
     else if (/EXPORT|RECORD|HISTORY/.test(d.code))

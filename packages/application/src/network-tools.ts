@@ -24,7 +24,7 @@ import {
   networkToolChanges,
   type NetworkToolEditPlan,
 } from './network-tool-commands.js';
-import { networkToolSelectionNotes } from './network-tool-selection.js';
+import { networkToolCatalogDefinition, networkToolSelectionNotes } from './network-tool-selection.js';
 import {
   toolFailure,
   networkToolCollections,
@@ -78,6 +78,8 @@ export interface NetworkToolProposal {
   readonly category: 'diagram' | 'calculation';
   readonly physical: boolean;
   readonly state: 'pending' | 'applied' | 'cancelled' | 'stale';
+  readonly commandCount: number;
+  readonly replacedProposal: { readonly proposalId: string; readonly state: 'cancelled' } | null;
   readonly plan: NetworkToolEditPlan | null;
   readonly validation: Result<true>;
   readonly wiringCheck: ReturnType<typeof networkWiringCheck>;
@@ -144,7 +146,7 @@ export class NetworkTools {
   #pending = new Map<NetworkToolProposal['category'], NetworkToolProposal>();
   #past = new Map<
     string,
-    { readonly proposalId: string; readonly state: NetworkToolProposal['state']; readonly base: NetworkToolBase }
+    Pick<NetworkToolProposal, 'state' | 'base' | 'commandCount' | 'replacedProposal'> & { readonly proposalId: string }
   >();
   clear(): void {
     this.#captures.clear();
@@ -171,7 +173,7 @@ export class NetworkTools {
           'In this project, draw/add/rewire/change parameters means propose an editable workbench change. Export PDF/image only on explicit request. Explanation alone does not authorize edits.',
         sequence: ['capture', 'read project/catalog', 'preview', 'proposal by id', 'user confirmation in workbench'],
         completion:
-          'Report submitted only after successful preview and matching pending proposal. Report applied only after user acceptance and a fresh capture. Connection failures are not permission to substitute a PDF.',
+          'Report submitted only after successful preview and matching pending proposal. Use the successful receipt for commandCount and replacedProposal. Report applied only after user acceptance and a fresh capture. Connection failures are not permission to substitute a PDF.',
         identity:
           'Use the current live capture including unsaved changes. Never choose another project/window or reuse a stale base.',
         existingDesign:
@@ -501,7 +503,7 @@ export class NetworkTools {
             parameters,
           };
         return {
-          definition: d,
+          definition: networkToolCatalogDefinition(d),
           selection: networkToolSelectionNotes(d),
           creationPreset: { parameters, initial: networkInitialFor(c) },
         };
@@ -645,6 +647,8 @@ export class NetworkTools {
       category,
       physical,
       state: 'pending',
+      commandCount: plan?.commands.length ?? 0,
+      replacedProposal: prior ? { proposalId: prior.id, state: 'cancelled' } : null,
       plan,
       changes: networkToolChanges(session.document, document),
       validation,
@@ -663,6 +667,8 @@ export class NetworkTools {
       physical: p.physical,
       changes: p.changes,
       commands: p.plan?.commands ?? [],
+      commandCount: p.commandCount,
+      replacedProposal: p.replacedProposal,
       wiringCheck: p.wiringCheck,
       runtimeValidation: p.validation,
       runtimeValidationScope: 'static-mapping-only; no native execution performed',
@@ -680,7 +686,13 @@ export class NetworkTools {
   #finish(id: string, state: NetworkToolProposal['state']): void {
     const p = this.pendingProposals.find((p) => p.id === id);
     if (!p) return;
-    this.#past.set(p.id, { proposalId: p.id, state, base: p.base });
+    this.#past.set(p.id, {
+      proposalId: p.id,
+      state,
+      base: p.base,
+      commandCount: p.commandCount,
+      replacedProposal: p.replacedProposal,
+    });
     if (this.#past.size > 8) this.#past.delete(this.#past.keys().next().value ?? '');
     this.#pending.delete(p.category);
   }

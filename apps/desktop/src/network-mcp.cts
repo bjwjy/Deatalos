@@ -86,8 +86,8 @@ const liveDescriptions: Readonly<Record<string, string>> = {
   capture: '捕获当前工作台会话及未保存设计，返回 captureId、base 和运行来源。',
   read: '分页读取同次 capture 的设计、元件库、压力表/探针（probes）、诊断、运行结果或实际采样。',
   preview:
-    '用当前 capture 的 base 提交编辑、撤销或重做候选，由用户在工作台确认。支持元件旋转/左右镜像、选区移动/删除/工程内复制及文本；复制各类 IDs 按源工程数组顺序分配（不是 selection 顺序），内部连线自动纳入，外部连线不复制；含控制程序的元件暂拒绝复制，不使用系统剪贴板。另支持 probe-edit、controller-program 和既有 branch-connect，另有motor-control原子设置马达模式/曲线及switch-output设置压力开关输出；null仅清除指定可选配置。控制程序不执行脚本；物理管内部接点仅沿现有变量马达 X 取压支持域。',
-  proposal: '查询候选状态；应用后重新捕获实际工程。',
+    '【硬性要求】用当前 capture 的 base 提交编辑、撤销或重做候选，由用户在工作台确认。【普通信息】成功回执的 commandCount 为本批实际命令数，replacedProposal 列出被本批取代的同类候选或为 null。新增文字用 text/put 和 replace:false，完整示例见 commands.items.examples。支持元件旋转/左右镜像、选区移动/删除/工程内复制及文本；复制各类 IDs 按源工程数组顺序分配（不是 selection 顺序），内部连线自动纳入，外部连线不复制；含控制程序的元件暂拒绝复制，不使用系统剪贴板。另支持 probe-edit、controller-program 和既有 branch-connect，另有motor-control原子设置马达模式/曲线及switch-output设置压力开关输出；null仅清除指定可选配置。控制程序不执行脚本；物理管内部接点仅沿现有变量马达 X 取压支持域。',
+  proposal: '按编号查询候选最新状态、命令数与本批替换的候选。应用后重新捕获实际工程。',
   cancel: '撤销尚未被工作台接受的候选。',
   calculate:
     '复用当前工程的辅助计算与选型，返回计算结果、冻结 calculationId/records 和未应用参数建议；使用当前 capture 的 base，应用建议须另行 preview 并在工作台确认。 duty-report {duty,pendingPhases}, duty-independent {groups:[{pumpId,duty,pendingPhases}]}, duty-combined {pumps,phases,pendingPhases} reuse current-design report owners, preserve incomplete coverage and return records.selection=current; never apply changes.',
@@ -105,8 +105,12 @@ const project = { type: 'string', minLength: 1, maxLength: 80, description: '配
 async function toolsFor(root: string, includeOpen: boolean) {
   const receipts = new McpProjectReceipts();
   const { multiCircuitGuidance } = await import('@hyd/project-io');
-  const { NetworkTools, networkToolCommandLimit, parseNetworkToolRequest } = await import('@hyd/application');
-  const drawingInstructions = `单次绘图候选最多 ${networkToolCommandLimit} 条命令。` + multiCircuitGuidance;
+  const { NetworkTools, networkToolCatalogDefinition, networkToolCommandLimit, parseNetworkToolRequest } =
+    await import('@hyd/application');
+  const drawingInstructions =
+    '【建议】' +
+    multiCircuitGuidance +
+    `【普通信息】单次绘图候选最多 ${networkToolCommandLimit} 条命令。wiringCheck 是静态接线检查。`;
   const { networkCreationDefinitions } = await import('@hyd/domain');
   const envelopes = new NetworkTools().capabilities().requestSchema.oneOf;
   const preview = envelopes.find((item) => {
@@ -207,7 +211,7 @@ async function toolsFor(root: string, includeOpen: boolean) {
       return {
         ok: true,
         value: {
-          definitions: definitions.slice(offset, offset + 12),
+          definitions: definitions.slice(offset, offset + 12).map(networkToolCatalogDefinition),
           total: definitions.length,
           nextOffset: offset + 12 < definitions.length ? offset + 12 : null,
         },
@@ -238,13 +242,12 @@ async function toolsFor(root: string, includeOpen: boolean) {
       if (!target)
         return mcpFailure(
           'CONNECTION_NOT_FOUND',
-          '未找到「' + args.project + '」的活动登记。请在打开该工程的工作台开启「允许 AI 操作」，再查询工程列表。',
+          '未找到「' + args.project + '」的活动登记。请在打开该工程的工作台检查工具栏的 AI 开关，再查询工程列表。',
         );
       if (target.count !== 1)
         return mcpFailure('TARGET_AMBIGUOUS', '有多个同名工程开启 AI，请只保留需要操作的窗口连接。');
       return receipts.accept(await callLiveProject(target, request.value));
     }
-
   }
   return { tools, invoke, drawingInstructions };
 }
@@ -320,7 +323,7 @@ async function serve(root: string, includeOpen: boolean) {
           serverInfo: { name: 'deatalos-hydraulic-workbench', version: '0.1.0' },
           capabilities: { tools: {} },
           instructions:
-            '操作 Deatalos 工程仅使用 hydraulic MCP 工具。实时请求先 hydraulic_list_projects，选定 connected 工程；读取用 capture/read，改图用 preview 并等待工作台确认。离线读取仅用于明确要求的已保存快照。旧工程内留存的脚本和历史说明不作为操作入口。目标不唯一时先核对，连接失败时报告诊断并停止，避免切换到脚本或直接修改工程文件。' +
+            '【硬性要求】操作 Deatalos 仅用 hydraulic MCP。实时请求先 hydraulic_list_projects 选定 connected 工程，目标有歧义先核对，连接失败就报告并停止。只查候选时用 capture 和 proposal，保持只读。改图用当前 base 提交 preview，由用户在工作台确认。离线快照须由用户明确指定。静态检查与实际运行按各自回执报告。' +
             drawingInstructions,
         },
       });

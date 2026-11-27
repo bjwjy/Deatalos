@@ -196,6 +196,28 @@ const notes: Readonly<Record<string, SelectionNote>> = {
   },
 };
 
+const catalogPortDescriptions: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  'teaching:variable-motor': {
+    A: '双向工作油口，与 B 形成马达工作压差。',
+    B: '双向工作油口，与 A 形成马达工作压差。',
+    X: '外部压力控制（external-pressure）的取压口，接控制压力测点。手动、工作压差曲线及外部电压模式可闲置。切勿将 X 用作壳体泄油口。',
+    U: '外部电压控制（external-voltage）的信号输入，接电压信号源。手动、工作压差曲线及外部压力模式可闲置。',
+  },
+  'teaching:one-way-throttle': {
+    A: 'A→B 为节流方向。若要在缸伸出时对 B 腔回油节流，将缸 B 口接本阀 A 口。',
+    B: '反向 B→A 达到开启压差后，单向旁通与节流通路并联导通。缸伸出时对 B 腔回油节流的例子中，本阀 B 口接换向阀 B 口。',
+  },
+};
+
+export function networkToolCatalogDefinition(definition: NetworkDefinition) {
+  const descriptions = catalogPortDescriptions[definition.id];
+  if (!descriptions) return definition;
+  return {
+    ...definition,
+    ports: definition.ports.map((port) => ({ ...port, description: descriptions[port.id] })),
+  };
+}
+
 export function networkToolSelectionNotes(definition: NetworkDefinition) {
   const note = notes[definition.typeId];
   return {

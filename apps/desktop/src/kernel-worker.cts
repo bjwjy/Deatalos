@@ -114,6 +114,34 @@ async function handle(input: unknown): Promise<unknown> {
       );
       if (!store.ok) return store;
       candidate = store.value;
+      if (request.autoLowPressure && !request.mapping.lowPressureModel) {
+        const original = candidateBackend;
+        let deadline = 0,
+          lastProgress = 0;
+        candidate.allowLowPressure({
+          open: (preview) => {
+            deadline = performance.now() + 300_000;
+            lastProgress = 0;
+            return openBackend(
+              original.project,
+              {
+                ...original.plan.options,
+                ...(preview ? { lowPressureModel: 'equivalent-cavity-v1' as const } : {}),
+              },
+              original.resourceDigest,
+            );
+          },
+          replayAllowed: () => {
+            const now = performance.now();
+            if (retiring || now >= deadline) return false;
+            if (now - lastProgress >= 1000) {
+              send({ event: 'continuation-progress' });
+              lastProgress = now;
+            }
+            return true;
+          },
+        });
+      }
       const initialized = await candidate.initialize();
       if (!initialized.ok) return initialized;
       if (retiring) return failed('RESPONSE_STALE', '候选初始化期间上下文已退役。');
@@ -183,10 +211,29 @@ async function handle(input: unknown): Promise<unknown> {
     const original = backend;
     if (!original) return failed('RECOVERY_UNAVAILABLE', '原生运行配置已失效。');
     stopTimer();
-    const deadline = performance.now() + 5500;
+    // A many-branch run can take minutes to replay at its original native substep.
+    // Refresh the host watchdog only while the original request stream advances.
+    const deadline = performance.now() + 300_000;
+    let lastProgress = performance.now();
     outcome = await runtime.recover(
-      () => openBackend(original.project, original.plan.options, original.resourceDigest),
-      () => !retiring && performance.now() < deadline,
+      () =>
+        openBackend(
+          original.project,
+          {
+            ...original.plan.options,
+            ...(runtime?.lowPressureActive ? { lowPressureModel: 'equivalent-cavity-v1' as const } : {}),
+          },
+          original.resourceDigest,
+        ),
+      () => {
+        const now = performance.now();
+        if (retiring || now >= deadline) return false;
+        if (now - lastProgress >= 1000) {
+          send({ event: 'recovery-progress', sequence: request.clientSequence });
+          lastProgress = now;
+        }
+        return true;
+      },
     );
   }
   if (request.action === 'sequence-start') {

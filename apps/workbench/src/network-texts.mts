@@ -76,6 +76,25 @@ export function createNetworkTexts(hooks: Hooks) {
     if (placing && placing !== hooks.editor()) cancelPlacement();
     if (edit && edit.owner !== hooks.editor() && dialog.open) dialog.close();
   }
+  function placeAt(point: { x: number; y: number }): void {
+    if (!hooks.canvas.editable || dialog.open) return;
+    openValue(
+      {
+        id: hooks.uid(),
+        kind: 'text',
+        version: 1,
+        ...point,
+        width: 240,
+        text: '',
+        fontSize: 18,
+        color: '#354b62',
+        align: 'left',
+        border: false,
+        background: null,
+      },
+      false,
+    );
+  }
   function setup(): void {
     element('addTextAnnotation').addEventListener('click', () => {
       if (!hooks.canvas.editable) {
@@ -99,22 +118,7 @@ export function createNetworkTexts(hooks: Hooks) {
           point = hooks.canvas.positionAtClient(event.clientX, event.clientY);
         cancelPlacement();
         if (!point || owner !== hooks.editor() || !hooks.canvas.editable) return;
-        openValue(
-          {
-            id: hooks.uid(),
-            kind: 'text',
-            version: 1,
-            ...point,
-            width: 240,
-            text: '',
-            fontSize: 18,
-            color: '#354b62',
-            align: 'left',
-            border: false,
-            background: null,
-          },
-          false,
-        );
+        placeAt(point);
       },
       true,
     );
@@ -180,6 +184,8 @@ export function createNetworkTexts(hooks: Hooks) {
   }
   return {
     setup,
+    placeAt,
+    cancelPlacement,
     render,
     open,
     overlay: (project: NetworkProject) =>

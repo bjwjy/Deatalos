@@ -149,11 +149,22 @@ export function arrangeIndependentCircuits(
   const paths = new Map<string, readonly Point[]>();
   let nextLeft: number | undefined, top: number | undefined;
   for (const island of islands) {
-    const planned = island.layout.components.length
-      ? arrange(island)
-      : { ok: true as const, value: { document: island } };
-    if (!planned.ok) return planned;
-    const local = planned.value.document;
+    let local: NetworkProject;
+    if (island.layout.components.length) {
+      const planned = arrange(island);
+      if (!planned.ok) return planned;
+      local = planned.value.document;
+    } else {
+      // A node-only branch has no symbols to place, but its connections still
+      // need arrangement routes for translation, validation and save/reopen.
+      local = {
+        ...island,
+        layout: {
+          ...island.layout,
+          routes: island.layout.routes.map(({ connectionId }) => ({ connectionId, mode: 'avoid' })),
+        },
+      };
+    }
     const drawn = pathsFor(local);
     if (!drawn.ok) return drawn;
     const bounds = frame(local, drawn.value);

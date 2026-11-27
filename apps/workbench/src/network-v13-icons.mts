@@ -56,9 +56,11 @@ const paths = {
   drop: '<path d="M12 2S4 11 4 15a8 8 0 0 0 16 0c0-4-8-13-8-13Z"/><path d="M8 15a4 4 0 0 0 4 4"/>',
 };
 export type NetworkUiIcon = keyof typeof paths;
-export function networkUiIcon(name: NetworkUiIcon): string {
+export function networkUiIcon(name: NetworkUiIcon, size?: number): string {
   return (
-    '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<svg class="icon"' +
+    (size === undefined ? '' : ' width="' + size + '" height="' + size + '"') +
+    ' viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     paths[name] +
     '</svg>'
   );

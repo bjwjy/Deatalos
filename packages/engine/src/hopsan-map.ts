@@ -86,7 +86,7 @@ function motorCavityTopology(graph: ConnectionGraph) {
   return { motorId: motor.id, volumeIds: new Set(volumes.map((c) => c.id)), storage };
 }
 
-/** Two independently metered directional branches in one real pump/tank network. */
+/** Trace independent directional branches sharing the same physical pump and tank. */
 function coupledCavityWorkNets(graph: ConnectionGraph, actuators: readonly NetworkComponent[]) {
   const { components } = graph.project.design;
   const pumps = components.filter((c) => c.typeId === 'pump');
@@ -107,19 +107,31 @@ function coupledCavityWorkNets(graph: ConnectionGraph, actuators: readonly Netwo
   const drain = byPort.get(portKey(tank.id, 'T'));
   if (!supply || !drain || supply === drain || byPort.get(portKey(pump.id, 'S')) !== drain) return null;
   const fed = new Set([supply]);
+  const regulated = new Set<IdealNet>();
   for (const port of supply.terminals) {
-    if (byId.get(port.ownerId)?.typeId !== 'throttle' || !['A', 'B'].includes(port.portId)) continue;
+    const feed = byId.get(port.ownerId);
+    if (feed?.typeId === 'pressure-compensated-flow' && feed.parameters.storage && port.portId === 'P') {
+      const outlet = byPort.get(portKey(feed.id, 'A'));
+      if (outlet && outlet !== supply && outlet !== drain && outlet.terminals.length === 2) {
+        regulated.add(outlet);
+        fed.add(outlet);
+      }
+    }
+    if (feed?.typeId !== 'throttle' || !['A', 'B'].includes(port.portId)) continue;
     const downstream = byPort.get(portKey(port.ownerId, port.portId === 'A' ? 'B' : 'A'));
     if (downstream && downstream !== drain) fed.add(downstream);
   }
   const valves = new Set<string>();
   const work = new Map<string, IdealNet>();
+  const workNets = new Set<IdealNet>();
+  const meteredStorageOwners = new Set<string>();
   for (const actuator of actuators) {
     let branch: string | undefined;
-    for (const side of actuator.typeId === 'single-acting-cylinder' ? ['A'] : ['A', 'B']) {
+    const sides = actuator.typeId === 'single-acting-cylinder' ? ['A'] : ['A', 'B'];
+    for (const side of sides) {
       const key = portKey(actuator.id, side);
       const net = byPort.get(key);
-      if (!net || fed.has(net) || net === drain || [...work.values()].includes(net)) return null;
+      if (!net || fed.has(net) || net === drain || workNets.has(net)) return null;
       const connected = net.terminals.filter((p) => byId.get(p.ownerId)?.typeId === 'valve');
       const [edge] = connected;
       if (
@@ -142,6 +154,7 @@ function coupledCavityWorkNets(graph: ConnectionGraph, actuators: readonly Netwo
         return null;
       branch = edge.ownerId;
       work.set(key, net);
+      workNets.add(net);
     }
     const branchSupply = branch && byPort.get(portKey(branch, 'P'));
     if (
@@ -153,8 +166,15 @@ function coupledCavityWorkNets(graph: ConnectionGraph, actuators: readonly Netwo
     )
       return null;
     valves.add(branch);
+    // Use the declared oil storage only on direct valve-to-actuator work lines.
+    if (
+      regulated.has(branchSupply) &&
+      actuator.parameters.storage &&
+      sides.every((side) => work.get(portKey(actuator.id, side))?.terminals.length === 2)
+    )
+      meteredStorageOwners.add(actuator.id);
   }
-  return work;
+  return { work, meteredStorageOwners };
 }
 
 export function compileHopsan(input: unknown, options: MappingOptions): Result<MappingPlan> {
@@ -185,7 +205,17 @@ export function compileHopsan(input: unknown, options: MappingOptions): Result<M
     project = graph.project;
   const actuators = project.design.components.filter((c) => isNetworkActuatorType(c.typeId));
   const requested = options.lowPressureModel && project.design.pressureReference.kind === 'kernel-numeric';
-  const coupledWork = requested && actuators.length === 2 ? coupledCavityWorkNets(graph, actuators) : null;
+  const hasRegulator = project.design.components.some(
+    (c) => c.typeId === 'pressure-compensated-flow' && c.parameters.storage,
+  );
+  const branches =
+    (requested && actuators.length === 2) || hasRegulator ? coupledCavityWorkNets(graph, actuators) : null;
+  const coupledWork =
+    requested &&
+    branches &&
+    (actuators.length === 2 || (actuators.length > 1 && branches.meteredStorageOwners.size === actuators.length))
+      ? branches.work
+      : null;
   const previewActuators = requested && (actuators.length === 1 || coupledWork) ? actuators : [];
   const previewActuator = previewActuators.length === 1 ? previewActuators[0] : undefined;
   const motorCavity = previewActuator?.typeId === 'motor' ? motorCavityTopology(graph) : null;
@@ -199,8 +229,9 @@ export function compileHopsan(input: unknown, options: MappingOptions): Result<M
       )
       .map((c) => c.id),
   );
+  if (branches) for (const id of branches.meteredStorageOwners) storedCavityOwners.add(id);
   const cavityMotors = new Set(
-    previewActuators.filter((c) => c.typeId === 'motor' && storedCavityOwners.has(c.id)).map((c) => c.id),
+    actuators.filter((c) => c.typeId === 'motor' && storedCavityOwners.has(c.id)).map((c) => c.id),
   );
   const cavityVolumes = new Set(motorCavity?.volumeIds);
   const cavityPorts = new Map(motorCavity?.storage);
@@ -337,6 +368,11 @@ export function compileHopsan(input: unknown, options: MappingOptions): Result<M
         .filter((p) => p.kind === 'component' && p.portId === 'P' && valveIds.has(p.ownerId))
         .map((p) => p.ownerId),
     ),
+  );
+  const pressureFedValves = new Set(
+    graph.nets
+      .filter((net) => net.terminals.some((p) => componentTypes.get(p.ownerId) === 'pressure-source'))
+      .flatMap((net) => net.terminals.filter((p) => p.portId === 'P' && valveIds.has(p.ownerId)).map((p) => p.ownerId)),
   );
   const pumpFedWorkingPort = (p: GraphPort) =>
     p.kind === 'component' && ['A', 'B'].includes(p.portId) && suppliedValves.has(p.ownerId);
@@ -606,6 +642,8 @@ export function compileHopsan(input: unknown, options: MappingOptions): Result<M
     if (series) {
       flows.set(series.valveKey, [{ ref: series.readback, sign: -1 }]);
       flows.set(series.checkKey, [{ ref: series.readback, sign: 1 }]);
+      // A blocked cross-pilot tap has the exact junction pressure and zero flow.
+      if (series.pilotKey) flows.set(series.pilotKey, [{ ref: series.readback, sign: 0 }]);
       continue;
     }
     const list = net.terminals.map((p) => ({ p, t: terminals.get(p.key) }));
@@ -644,14 +682,22 @@ export function compileHopsan(input: unknown, options: MappingOptions): Result<M
     }
     const storagePort = cs[0]?.p;
     const loadPort = qs[0]?.p;
-    const dividerType = loadPort && componentTypes.get(loadPort.ownerId);
-    const dividerFeedsSpringCylinder =
-      cs.length === 1 &&
+    const feedType = loadPort && componentTypes.get(loadPort.ownerId);
+    const directWorkPort = cs.length === 1 && qs.length === 1 && (loadPort?.portId === 'A' || loadPort?.portId === 'B');
+    const meteredSpringCylinder =
+      directWorkPort &&
       storagePort?.portId === 'A' &&
-      componentTypes.get(storagePort.ownerId) === 'single-acting-cylinder' &&
-      qs.length === 1 &&
-      (loadPort?.portId === 'A' || loadPort?.portId === 'B') &&
-      (dividerType === 'flow-divider-combiner' || dividerType === 'synchronizing-flow-divider');
+      componentTypes.get(storagePort.ownerId) === 'single-acting-cylinder';
+    const pressureFedSpring = meteredSpringCylinder && pressureFedValves.has(loadPort.ownerId);
+    // A moving cushioned piston can draw more oil than the switching spool supplies.
+    // Give each directly connected chamber its own declared volume and refill history.
+    const pressureFedCushion =
+      directWorkPort &&
+      (storagePort?.portId === 'A' || storagePort?.portId === 'B') &&
+      componentTypes.get(storagePort.ownerId) === 'cushioned-cylinder' &&
+      pressureFedValves.has(loadPort.ownerId);
+    const dividerFeedsSpringCylinder =
+      meteredSpringCylinder && (feedType === 'flow-divider-combiner' || feedType === 'synchronizing-flow-divider');
     const pumpFedStorage =
       (pumpDeliveryNets.includes(net) || net.terminals.some(pumpFedWorkingPort)) &&
       qs.every(({ p }) => p.kind === 'component' && (pumpIds.has(p.ownerId) || valveIds.has(p.ownerId)));
@@ -663,7 +709,7 @@ export function compileHopsan(input: unknown, options: MappingOptions): Result<M
     // one pressure and tracks liquid shortage until net inflow fills it.
     if (
       !boundaries.length &&
-      (pumpFedStorage || dividerFeedsSpringCylinder || previewStorage) &&
+      (pumpFedStorage || dividerFeedsSpringCylinder || pressureFedSpring || pressureFedCushion || previewStorage) &&
       fixedStorage.length === cs.length &&
       fixedStorage.some(({ spec }) => spec.bounded) &&
       fixedStorage.every(({ spec }) => spec.shareable)
@@ -673,9 +719,10 @@ export function compileHopsan(input: unknown, options: MappingOptions): Result<M
       // A single existing volume keeps its liquid TLM impedance. This is
       // needed near a stopped rotary actuator with a wide metering edge.
       const preserveLiquidWaves =
-        previewStorage &&
-        fixedStorage.length === 1 &&
-        !fixedStorage.some(({ p }) => isLinearActuatorType(componentTypes.get(p.ownerId) ?? ''));
+        pressureFedSpring ||
+        (previewStorage &&
+          fixedStorage.length === 1 &&
+          !fixedStorage.some(({ p }) => isLinearActuatorType(componentTypes.get(p.ownerId) ?? '')));
       const storage = { component: netId, port: preserveLiquidWaves ? 'P1' : 'P' };
       const cavity = { component: netId, port: 'cavity' };
       if (preserveLiquidWaves)
@@ -814,7 +861,7 @@ export function compileHopsan(input: unknown, options: MappingOptions): Result<M
       return failure(
         'CAVITY_MODEL_UNSUPPORTED',
         '/mapping/lowPressureModel',
-        '低压预览需要原生数值压力及可映射真实油液存量的工作口。耦合模式支持同泵同箱、独立换向的两条理想支路，阀前可串节流。',
+        '低压预览需要原生数值压力及可映射真实油液存量的工作口。耦合模式支持同泵同箱、独立换向的两条理想支路，或各支路分别经带储油的压力补偿调速阀供油、执行元件工作口自带储油的回路。',
       );
     diagnostics.push({
       code: coupledWork

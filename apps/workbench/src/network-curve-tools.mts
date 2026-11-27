@@ -794,8 +794,8 @@ export function createNetworkCurveTools(hooks: Hooks) {
     renderKeys();
     apply();
   }
-  async function importFile() {
-    const file = input('file').files?.[0];
+  async function importFile(associated?: File) {
+    const file = associated ?? input('file').files?.[0];
     input('file').value = '';
     if (!file) return;
     show();
@@ -1339,6 +1339,7 @@ export function createNetworkCurveTools(hooks: Hooks) {
   });
   button('addKey').addEventListener('click', () => toggle(Number(select('point').value)));
   return {
+    importFile,
     invalidateIfChanged() {
       if (dialog.open && owner && !current()) {
         releaseView();

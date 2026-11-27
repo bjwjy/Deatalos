@@ -118,9 +118,12 @@ export function setupNetworkWorkspace(
     element('minimizeLibrary').setAttribute('aria-label', minimized ? '展开元件库' : '最小化元件库');
     element('minimizeLibrary').setAttribute('aria-expanded', String(!minimized));
   }
-  function applyWidths(): void {
+  function inspectorWidth(): number {
     const available = element('canvasArea').parentElement?.clientWidth ?? window.innerWidth;
-    const right = clamp(preference.inspectorWidth, 240, Math.min(560, available - 246));
+    return clamp(preference.inspectorWidth, 240, Math.min(560, available - 246));
+  }
+  function applyWidths(): void {
+    const right = inspectorWidth();
     document.documentElement.style.setProperty('--inspector-width', `${right}px`);
     const separator = element('inspectorResize');
     separator.setAttribute('aria-valuenow', String(Math.round(right)));
@@ -325,11 +328,10 @@ export function setupNetworkWorkspace(
       event.preventDefault();
       separator.focus();
       separator.setPointerCapture(event.pointerId);
-      // The preference owns the outer drawer width, not its inset scrollable card panel.
       start = {
         pointerId: event.pointerId,
         x: event.clientX,
-        width: element('statusDrawerShell').getBoundingClientRect().width,
+        width: inspectorWidth(),
       };
       document.documentElement.classList.add('workspace-dragging');
     });
@@ -353,7 +355,7 @@ export function setupNetworkWorkspace(
       if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
       event.preventDefault();
       const delta = (event.key === 'ArrowRight' ? -1 : 1) * (event.shiftKey ? 40 : 10);
-      change(element('statusDrawerShell').getBoundingClientRect().width + delta);
+      change(inspectorWidth() + delta);
       persist();
     });
     window.addEventListener('blur', () => {
@@ -364,7 +366,7 @@ export function setupNetworkWorkspace(
   element('resetWorkspace').addEventListener('click', () => {
     preference = { ...preference, inspectorWidth: initial.inspectorWidth };
     applyWidths();
-    if (persist()) notify('区域尺寸已恢复默认；工程与运行保持。');
+    if (persist()) notify('右侧面板已恢复默认宽度。');
   });
   window.addEventListener('resize', applyWidths);
   new ResizeObserver(placeLibrary).observe(stage);

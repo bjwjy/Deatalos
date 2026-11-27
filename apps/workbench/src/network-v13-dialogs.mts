@@ -10,7 +10,6 @@ const definitions: readonly (readonly [string, string, NetworkUiIcon, string])[]
   ['throttleControl', 'throttle', 'throttle', 'compact'],
   ['probeDialog', 'probe', 'target', 'compact'],
   ['textAnnotationDialog', 'text', 'text', 'compact'],
-  ['routeToolsDialog', 'route', 'connect', 'wide'],
   ['layoutToolsDialog', 'layout', 'grid', 'compact'],
   ['pressureSettings', 'pressure', 'drop', 'wide'],
   ['appSettings', 'app-settings', 'settings', 'compact'],

@@ -135,3 +135,14 @@ E1.3S12 pressure-displacement characteristic, revision 1. HydraulicTeachingMotor
 samples the magnitude of the two motor port pressures' difference before each
 native step, evaluates bounded cubic Bezier segments and feeds displacement to
 the stock motor. Read-only taps introduce no hydraulic flow or additional storage.
+
+HydraulicTeachingPilotLockPair4 condenses the two ideal work junctions of
+an O/M four-way spool feeding a cylinder through cross-piloted, internally
+drained checks. Each X tap reads the other work junction with zero flow.
+In the free-flow direction each check retains the orifice loss. The
+positive cross-pilot differential relieves the spring bias up to the
+configured cracking pressure. An unlocked return path can therefore
+refill a moving chamber through the same two finite orifices.
+Reverse flow follows the same seated, force-balanced and full-lift limits
+as the single condensed pilot series. All native substeps check the
+non-cavitating domain at P, T, both work junctions and both load ports.

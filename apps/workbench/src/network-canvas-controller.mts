@@ -32,6 +32,7 @@ import {
   manualRoute,
   marqueeSelection,
   segmentRoute,
+  nearestRouteSegment,
   moveSelection,
   resolveRoute,
   selectionKey,
@@ -165,16 +166,42 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
     hooks.render();
     return true;
   }
-  function setRoute(route: NetworkProject['layout']['routes'][number]): void {
-    activeBend = null;
+  function addRouteBend(id: string, at: Point): void {
+    if (selected?.kind !== 'connection' || selected.id !== id || gesture.active || firstEndpoint || hooks.fileBusy())
+      return;
+    const points = currentRoute(id),
+      hit = nearestRouteSegment(points, at);
+    if (!hit || hit.distance * view.value.zoom > 12) return;
+    const near = points.findIndex((p) => Math.hypot(p.x - hit.point.x, p.y - hit.point.y) * view.value.zoom <= 2);
+    if (near === 0 || near === points.length - 1) return;
+    if (near < 0) points.splice(hit.index + 1, 0, hit.point);
+    const anchors = points.slice(1, -1),
+      index = near < 0 ? hit.index : near - 1;
+    const existing = hooks.editor().document.layout.routes.find((route) => route.connectionId === id);
+    const current =
+      existing?.mode === 'manual'
+        ? existing.points.findIndex((p) => p.x === anchors[index]?.x && p.y === anchors[index]?.y)
+        : -1;
+    if (current >= 0) {
+      activeBend = current;
+      draw();
+      return;
+    }
+    setRoute(manualRoute(id, anchors), index);
+  }
+  function setRoute(route: NetworkProject['layout']['routes'][number], explicitBend: number | null = null): void {
+    activeBend = explicitBend;
+    const routes = hooks.editor().document.layout.routes;
     let candidate: NetworkProject = {
       ...hooks.editor().document,
       layout: {
         ...hooks.editor().document.layout,
-        routes: hooks.editor().document.layout.routes.map((r) => (r.connectionId === route.connectionId ? route : r)),
+        routes: routes.some((r) => r.connectionId === route.connectionId)
+          ? routes.map((r) => (r.connectionId === route.connectionId ? route : r))
+          : [...routes, route],
       },
     };
-    if (route.mode === 'manual') {
+    if (route.mode === 'manual' && explicitBend === null) {
       const plan = planNetworkRouteSimplification(candidate, [route.connectionId]);
       if (!plan.ok) {
         hooks.diagnostics(plan.diagnostics);
@@ -256,6 +283,8 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
       readoutConnection,
       branchPoints,
     });
+    const surface = boardElement();
+    if (surface.dataset.tailTrim) surface.dispatchEvent(new Event('refresh-trim-preview'));
   }
   function chooseEndpoint(endpoint: NetworkConnectionAnchor) {
     const project = hooks.editor().document;
@@ -522,19 +551,22 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
           };
         } else if (target.kind === 'background')
           drag = { kind: 'marquee', start, dx: 0, dy: 0, additive: event.shiftKey };
-        else if (target.kind === 'path') {
+        else if (target.kind === 'path' || target.kind === 'connection') {
+          const points = currentRoute(target.id);
+          const index = target.kind === 'path' ? target.index : nearestRouteSegment(points, start)?.index;
+          const part = target.kind === 'path' ? target.part : 'segment';
           const route = hooks.editor().document.layout.routes.find((r) => r.connectionId === target.id);
-          if (target.part === 'segment' || route?.mode === 'manual')
+          if (index !== undefined && (part === 'segment' || route?.mode === 'manual'))
             drag = {
               kind: 'path',
               start,
               dx: 0,
               dy: 0,
               id: target.id,
-              index: target.index,
-              part: target.part,
+              index,
+              part,
               members: renderer.tracks(hooks.editor().document).members(target.id),
-              points: target.part === 'bend' && route?.mode === 'manual' ? route.points : currentRoute(target.id),
+              points: part === 'bend' && route?.mode === 'manual' ? route.points : points,
             };
         }
       }
@@ -624,6 +656,7 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
           drag.dy = Math.max(...members.map((p) => -1e6 - p.y), Math.min(drag.dy, ...members.map((p) => 1e6 - p.y)));
         } else if (drag.kind === 'path') {
           const d = drag;
+          if (!isSelected('connection', d.id)) select([{ kind: 'connection', id: d.id }]);
           const a = d.points[d.index],
             b = d.points[d.index + 1];
           if (d.part === 'segment' && a && b && (a.x === b.x ? d.dx === 0 : d.dy === 0)) {
@@ -735,7 +768,7 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
         } else if (move.kind === 'path' && shared) {
           activeBend = null;
           if (hooks.mutate(shared, false)) hooks.toast('共用管段和相连支路已一起移动。');
-        } else if (move.kind === 'path' && preview) setRoute(preview);
+        } else if (move.kind === 'path' && preview) setRoute(preview, move.part === 'bend' ? move.index : null);
         else if (move.kind === 'marquee') {
           const found = marqueeSelection(
             hooks.editor().document,
@@ -873,10 +906,7 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
         return;
       }
       if (target.kind !== 'path' || target.part !== 'segment' || firstEndpoint) return;
-      const points = currentRoute(target.id),
-        p = position(event);
-      points.splice(target.index + 1, 0, { x: clampCoordinate(p.x), y: clampCoordinate(p.y) });
-      setRoute(manualRoute(target.id, points));
+      addRouteBend(target.id, position(event));
     });
     board.addEventListener('pointercancel', (event) => {
       if (captured === event.pointerId) abort();
@@ -903,6 +933,7 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
       render: hooks.render,
       select,
       fitAll,
+      startConnection: setConnectionPolicy,
       removeSelected,
       escape() {
         if (gesture.active) abort();
@@ -969,7 +1000,7 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
       const r = hooks.editor().document.layout.routes.find((r) => r.connectionId === selected!.id);
       if (r?.mode !== 'manual') return;
       if (r.points.length === 1) {
-        hooks.toast('至少保留一个手动锚点；可点击恢复自动路径。');
+        hooks.toast('至少保留一个手动锚点；可点击恢复自动布线。');
         return;
       }
       setRoute(
@@ -980,17 +1011,10 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
       );
     });
 
-    $('connectMode').addEventListener('click', setConnectionPolicy);
     $('connectionPolicy').addEventListener('change', setConnectionPolicy);
     $('idealMode').addEventListener('click', () => {
       ($('connectionPolicy') as HTMLSelectElement).value = 'auto';
       setConnectionPolicy();
-    });
-    $('cancelConnect').addEventListener('click', () => {
-      cancelPointer?.();
-      if (pendingPipe) hooks.cancelPipeEdit();
-      $('connectHint').textContent = '已取消连接；可选择对象、拖动或重新选择起点。';
-      draw();
     });
   }
   function reset(): void {
@@ -1011,6 +1035,12 @@ export function createNetworkCanvas(hooks: CanvasHooks) {
     return had;
   }
   return {
+    currentRoute,
+    addRouteBend,
+    selectRoute(id: string, bend: number | null) {
+      select([{ kind: 'connection', id }]);
+      activeBend = bend;
+    },
     setPipeReadoutPinned(value: boolean) {
       readoutPinned = value;
       if (!value) readoutConnection = null;

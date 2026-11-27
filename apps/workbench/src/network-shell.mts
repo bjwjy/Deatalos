@@ -30,7 +30,6 @@ export function setupNetworkShell(): void {
     ['resultData', '元件数据与运行状态'],
     ['layoutTools', '自动整理'],
     ['externalTools', 'AI 接入与候选'],
-    ['routeTools', '手动绘图路径'],
     ['diagnostics', '诊断信息'],
   ]) {
     if (!id || !title) throw new Error('Menu panel definition missing');
@@ -256,7 +255,7 @@ export function setupNetworkShell(): void {
     stepPopup.style.left = `${Math.max(8, Math.min(button.right - stepPopup.offsetWidth, window.innerWidth - stepPopup.offsetWidth - 8))}px`;
     stepPopup.style.bottom = `${window.innerHeight - button.top + 6}px`;
   });
-  for (const popup of document.querySelectorAll<HTMLElement>('.menu-popup')) {
+  for (const popup of document.querySelectorAll<HTMLElement>('.menubar > .menu-popup')) {
     popup.addEventListener('beforetoggle', (event) => {
       if (!(event instanceof ToggleEvent) || event.newState !== 'open') return;
       const trigger = document.querySelector<HTMLButtonElement>(`[popovertarget="${popup.id}"]`);
@@ -288,10 +287,6 @@ export function setupNetworkShell(): void {
     }
     if (source.dataset.panel) {
       closeMenus();
-      if (source.dataset.panel === 'networkHelp') {
-        openHelp('symbols');
-        return;
-      }
       const target = element(source.dataset.panel);
       const panelDialog =
         target instanceof HTMLDialogElement

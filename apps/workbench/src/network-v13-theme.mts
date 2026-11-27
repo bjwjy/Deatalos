@@ -1,3 +1,4 @@
+import type { setupNetworkGlass } from './network-v13-glass.mjs';
 import { element } from './network-dom.mjs';
 import { createPlanetOrbits } from './network-v13-planet-orbits.mjs';
 
@@ -22,7 +23,7 @@ export const readNetworkTheme = (): string | null => toolTheme?.read() ?? null;
 export const applyNetworkTheme = async (value: string) =>
   toolTheme ? toolTheme.apply(value) : { applied: false, persisted: null };
 /** Appearance only. Preview and committed theme have independent lifecycles. */
-export function setupNetworkTheme(refreshPalette: () => Promise<void>): void {
+export function setupNetworkTheme(glass: ReturnType<typeof setupNetworkGlass>): void {
   const root = document.documentElement;
   const themes = [
     { id: 'neutral', name: '默认' },
@@ -208,7 +209,7 @@ export function setupNetworkTheme(refreshPalette: () => Promise<void>): void {
     else delete root.dataset.palette;
     if (updateTitleBar) applyTitleBar(index);
     try {
-      await refreshPalette();
+      await glass.refreshPalette(theme.id);
     } catch (error) {
       console.error('玻璃材质无法解码', error);
     }
@@ -259,13 +260,16 @@ export function setupNetworkTheme(refreshPalette: () => Promise<void>): void {
         // Snapshot clip pixels and fixed-layer pixels can differ at browser zoom.
         // Circle percentages use the normalized diagonal; the rim uses viewport axes.
         const circleRadius = (100 * radius * Math.SQRT2) / Math.hypot(width, height) + '%';
-        root.style.setProperty('--theme-wave-x', originX);
-        root.style.setProperty('--theme-wave-y', originY);
-        root.classList.add('theme-snapshot');
         // Only Night changes native symbol contrast. Its transparent button area
         // already reveals the same animated title-bar background as the page.
         pendingTitleBar = (themeAt(committed).id === 'coral') !== (themeAt(target).id === 'coral');
         active = document.startViewTransition(async () => {
+          root.classList.add('theme-snapshot');
+          root.style.setProperty('--theme-wave-x', originX);
+          root.style.setProperty('--theme-wave-y', originY);
+          root.style.setProperty('--theme-wave-radius', circleRadius);
+          root.style.setProperty('--theme-wave-width', (200 * radius) / width + '%');
+          root.style.setProperty('--theme-wave-height', (200 * radius) / height + '%');
           await apply(target, false);
           edge.className = 'theme-wave-layer';
           edge.setAttribute('aria-hidden', 'true');
@@ -273,52 +277,20 @@ export function setupNetworkTheme(refreshPalette: () => Promise<void>): void {
         });
         try {
           await active.ready;
-          if (!reduced.matches) {
-            const timing = {
-              duration: 720,
-              easing: getComputedStyle(root).getPropertyValue('--ease-in-out').trim(),
-              fill: 'both' as const,
-            };
-            const start = document.timeline.currentTime;
-            const wipe = root.animate(
-              {
-                clipPath: [
-                  'circle(0% at ' + originX + ' ' + originY + ')',
-                  'circle(' + circleRadius + ' at ' + originX + ' ' + originY + ')',
-                ],
-              },
-              { ...timing, pseudoElement: '::view-transition-new(root)' },
-            );
-            // A separate named layer draws a constant-width rim, synchronized to the reveal radius.
-            const rim = root.animate(
-              { width: ['0%', (200 * radius) / width + '%'], height: ['0%', (200 * radius) / height + '%'] },
-              { ...timing, pseudoElement: '::view-transition-new(theme-wave)' },
-            );
-            const fade = root.animate(
-              [{ opacity: 0 }, { opacity: 0.95, offset: 0.12 }, { opacity: 0.95, offset: 0.76 }, { opacity: 0 }],
-              {
-                duration: 720,
-                easing: 'linear',
-                fill: 'both' as const,
-                pseudoElement: '::view-transition-new(theme-wave)',
-              },
-            );
-            for (const animation of [wipe, rim, fade]) animation.startTime = start;
-            if (pendingTitleBar) {
-              const overlay = navigator.windowControlsOverlay;
-              const bar = overlay?.visible ? overlay.getTitlebarAreaRect() : undefined;
-              if (bar) {
-                const controlsX = (bar.right + width) / 2;
-                const controlsY = bar.top + bar.height / 2;
-                const arrival = Math.hypot(controlsX - x, controlsY - y) / radius;
-                const followReveal = () => {
-                  const progress = wipe.effect?.getComputedTiming().progress;
-                  if (progress != null && progress >= arrival) updateTitleBar();
-                  else titleBarFrame = requestAnimationFrame(followReveal);
-                };
-                followReveal();
-              } else updateTitleBar();
-            }
+          if (pendingTitleBar && !reduced.matches) {
+            const overlay = navigator.windowControlsOverlay;
+            const bar = overlay?.visible ? overlay.getTitlebarAreaRect() : undefined;
+            if (bar) {
+              const controlsX = (bar.right + width) / 2;
+              const controlsY = bar.top + bar.height / 2;
+              const arrival = Math.hypot(controlsX - x, controlsY - y);
+              const followReveal = () => {
+                const rim = getComputedStyle(root, '::view-transition-new(theme-wave)');
+                if (parseFloat(rim.width) / 2 >= arrival) updateTitleBar();
+                else titleBarFrame = requestAnimationFrame(followReveal);
+              };
+              followReveal();
+            } else updateTitleBar();
           }
         } catch (error) {
           if (!(error instanceof DOMException) || !['AbortError', 'InvalidStateError'].includes(error.name))
@@ -345,6 +317,7 @@ export function setupNetworkTheme(refreshPalette: () => Promise<void>): void {
   }
   function step(direction: number) {
     selected = (selected + direction + themes.length) % themes.length;
+    glass.prepare(themeAt(selected).id);
     preview();
     describe();
     status.textContent = '已预选' + themeAt(selected).name + '，点击应用。';
@@ -393,6 +366,7 @@ export function setupNetworkTheme(refreshPalette: () => Promise<void>): void {
       event.preventDefault();
       selected = transitionTarget ?? committed;
       confirmed = null;
+      glass.prepare(themeAt(selected).id);
       preview();
       describe();
     } else if (['ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'].includes(event.key)) {

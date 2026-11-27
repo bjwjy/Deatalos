@@ -155,6 +155,6 @@ export async function callLiveProject(
       req.end(payload);
     });
   } catch {
-    return mcpFailure('LIVE_TOOL_FAILED', '未取得目标工作台的有效响应。请检查「允许 AI 操作」，再通过 MCP 查找工程。');
+    return mcpFailure('LIVE_TOOL_FAILED', '未取得目标工作台的有效响应。请检查工具栏的 AI 开关，再通过 MCP 查找工程。');
   }
 }

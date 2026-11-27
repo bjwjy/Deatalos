@@ -172,14 +172,6 @@ html[data-inspector-open='false'] #inspectorResize {
   background: #a2ccd0;
   outline: 0;
 }
-.region-resize::after {
-  content: '';
-  position: absolute;
-  top: 45%;
-  left: 2px;
-  height: 32px;
-  border-left: 2px solid #8ca2ad;
-}
 html.workspace-dragging,
 html.workspace-dragging * {
   user-select: none !important;
@@ -1488,43 +1480,57 @@ dialog::backdrop {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   column-gap: 18px;
 }
-.calculation-dialog [data-action-fields] > p,
-.tool-permission {
+.calculation-dialog [data-action-fields] > p {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
   cursor: pointer;
 }
-.tool-permission input {
+#appAiSettings .tool-permission {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 36px;
+  width: fit-content;
+  padding: 0;
+  color: var(--theme-panel-ink, var(--dialog-ink));
+  cursor: pointer;
+}
+#allowAiOperations {
   appearance: none;
-  flex: 0 0 36px;
+  box-sizing: border-box;
+  position: relative;
+  flex: none;
   width: 36px;
   height: 22px;
-  padding: 2px;
   margin: 0;
-  border-radius: 12px;
-  background: #dce5e9;
-  border: 1px solid #9aadb5;
+  padding: 0;
+  border: 1px solid #84919c;
+  border-radius: 999px;
+  background: #a3adb7;
+  cursor: inherit;
 }
-.tool-permission input::before {
+#allowAiOperations::before {
   content: '';
-  display: block;
+  position: absolute;
+  inset: 2px auto auto 2px;
   width: 16px;
   height: 16px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 1px 3px #0003;
+  box-shadow: 0 1px 2px #0003;
 }
-.tool-permission input:checked {
+#allowAiOperations:checked {
   background: #167a87;
+  border-color: #146c78;
 }
-.tool-permission input:checked::before {
+#allowAiOperations:checked::before {
   transform: translateX(14px);
 }
-.tool-permission input:focus-visible {
-  outline: 2px solid #167a87;
-  outline-offset: 3px;
+#allowAiOperations:focus-visible {
+  outline: 2px solid var(--theme-panel-ink, var(--dialog-ink));
+  outline-offset: 2px;
 }
 .calculation-dialog [data-action-fields] > label:has(select),
 #sizingResize > p,
@@ -2029,6 +2035,43 @@ dialog::backdrop {
   z-index: 2;
 }
 
+#canvasGestureHint {
+  position:fixed; z-index:80; pointer-events:none; width:var(--gesture-diameter); height:var(--gesture-diameter); transform:translate(-50%,-50%);
+}
+.gesture-ring { display:block; width:100%; height:100%; overflow:visible;  }
+.gesture-band { fill:none; stroke:var(--theme-card,#f7f7f7); pointer-events:none; }
+.gesture-rim { fill:none; stroke:#969a9c; stroke-width:.8; pointer-events:none; }
+.gesture-slice { fill:transparent; stroke:none; }
+.gesture-glyph { color:var(--theme-panel-ink,#344944); pointer-events:none; }
+.gesture-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(170px,100%),1fr)); gap:12px 24px; }
+.gesture-sizes { display:flex; flex-wrap:wrap; gap:14px 24px; margin-top:14px; }
+.gesture-sizes label { display:grid; grid-template-columns:1fr auto; width:min(100%,220px); align-items:center; gap:4px; }
+#gestureRatioLock { align-self:center; flex:none; display:inline-flex; align-items:center; justify-content:center; gap:5px; width:auto; height:30px; padding:4px 8px; white-space:nowrap; }
+#gestureRatioLock[aria-pressed=true] { color:#096e60; background:#dfefe9; }
+.gesture-sizes output { font-variant-numeric:tabular-nums; }
+.gesture-sizes input[type=range] { grid-column:1 / -1; width:100%; min-height:24px; padding:0; accent-color:#227f70; cursor:pointer; }
+
+.gesture-ring .chosen .gesture-slice { fill:#959da333; stroke:#81878b; stroke-width:.8; }
+#gestureBindings [data-sector]:focus { outline:none !important; box-shadow:none; }
+#gestureBindings [data-sector]:focus-visible .gesture-slice { stroke:#48776c;stroke-width:1.5; }
+.gesture-ring .chosen .gesture-glyph,#gestureBindings [data-sector]:focus-visible .gesture-glyph { color:#096e60; }
+.gesture-binding-editor { display:grid; grid-template-columns:minmax(0,320px) minmax(0,1fr); align-items:center; gap:14px; margin:12px 0 18px; }
+#appGestureSettings { container-type:inline-size; }
+@container (max-width:520px) { .gesture-binding-editor { grid-template-columns:minmax(0,1fr); } .gesture-preview-frame { justify-self:center; } }
+.gesture-preview-frame { display:grid; place-items:center; width:min(320px,100%); height:320px; flex:none; }
+#gestureBindings { width:min(var(--gesture-diameter),100%); aspect-ratio:1; }
+#gestureBindings [data-sector] { cursor:pointer; }
+
+#gesturePalette { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px; }
+#gesturePalette button { display:flex; align-items:center; gap:5px; text-align:left; padding:4px 6px; font-size:12px; line-height:1.25; white-space:normal; cursor:grab; user-select:none; }
+#gesturePalette button:enabled:active { cursor:grabbing; }
+#gesturePalette button:disabled { color:var(--muted,#66736f); opacity:.48; cursor:default; box-shadow:none; }
+#gesturePalette button .icon { flex:0 0 16px; width:16px; height:16px; }
+#gestureDirection { color:var(--muted); font-size:12px; margin:8px 0 0; }
+.gesture-command-panel .dialog-note { margin:0 0 8px; }
+#board[data-tail-trim] { cursor: crosshair; }
+#board [data-trim-path] { fill: none; stroke: #c5c9cc; stroke-width: 5; pointer-events: none; stroke-linejoin: round; stroke-linecap: round; }
+#board .trim-preview { opacity: .45; filter: grayscale(1); }
 /* Dialog positions are local view state. Header buttons and body controls keep their gestures. */
 dialog > .dialog-head {
   cursor: move;

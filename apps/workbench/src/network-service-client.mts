@@ -23,7 +23,7 @@ declare global {
       onInitializationProgress(callback: (sequence: number, percent: number, stage: string) => void): () => void;
     };
     networkFiles: {
-      request(value: unknown): Promise<unknown>;
+      request(value: unknown, associatedId?: string): Promise<unknown>;
       hasStartupProject(): Promise<boolean>;
       onCloseRequested(callback: () => void): () => void;
     };
@@ -47,11 +47,14 @@ export async function requestRuntime(request: unknown): Promise<Result<NetworkRu
 }
 /** Page content is parsed at the existing captureNetworkExport boundary. */
 export const requestRecords = (request: KernelServiceRequest): Promise<Result<unknown>> => kernel(request);
-export async function requestNetworkFile(request: NetworkFileRequest): Promise<NetworkFileOutcome> {
+export async function requestNetworkFile(
+  request: NetworkFileRequest,
+  associatedId?: string,
+): Promise<NetworkFileOutcome> {
   const parsed = parseNetworkFileRequest(request);
   if (!parsed.ok) return { status: 'error', diagnostics: parsed.diagnostics };
   try {
-    const reply = parseNetworkFileOutcome(parsed.value, await window.networkFiles.request(parsed.value));
+    const reply = parseNetworkFileOutcome(parsed.value, await window.networkFiles.request(parsed.value, associatedId));
     if (reply.ok && reply.value.status === 'ok' && ['open', 'activate', 'close'].includes(reply.value.operation))
       runtimeReader.clear();
     return reply.ok ? reply.value : { status: 'error', diagnostics: reply.diagnostics };

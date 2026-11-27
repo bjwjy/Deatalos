@@ -95,7 +95,7 @@ export function createNetworkFormalExport(hooks: Hooks) {
       .map((f) => 'templateHeading.' + f.key)
       .concat(changedText);
   };
-  bindFrameDesigner({
+  const editFrame = bindFrameDesigner({
     current: templates.current,
     content(draft) {
       const input = settings(draft);
@@ -589,6 +589,10 @@ export function createNetworkFormalExport(hooks: Hooks) {
     if (!busy) invalidate();
   });
   return {
+    openFrame(template: DrawingTemplate) {
+      open(hooks.exportDefaults().drawing);
+      if (dialog.open) editFrame(template);
+    },
     prepareToolBatch,
     prepareToolDrawing,
     prepareToolBook,

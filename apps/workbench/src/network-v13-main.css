@@ -2298,14 +2298,6 @@ h3 {
 }
 
 /* Color candidates only. Geometry, symbols, commands and motion stay in the main prototype. */
-:root {
-  --glass-scene-top: #f4f7fa;
-  --glass-scene-middle: #dce5ee;
-  --glass-scene-bottom: #eef1f5;
-  --glass-scene-cool: #7390aa;
-  --glass-scene-warm: #c6b49c;
-  --glass-scene-light: #ffffff;
-}
 :root[data-palette='coral'] {
   color-scheme: dark;
   --ink: #f5f2ed;
@@ -2329,12 +2321,6 @@ h3 {
   --theme-primary: #ff8067;
   --theme-primary-ink: #271c19;
   --theme-panel-ink: #f1ede7;
-  --glass-scene-top: #39383e;
-  --glass-scene-middle: #28282e;
-  --glass-scene-bottom: #37353a;
-  --glass-scene-cool: #6c63a3;
-  --glass-scene-warm: #a56450;
-  --glass-scene-light: #686675;
 }
 :root[data-palette='oat'] {
   color-scheme: light;
@@ -2359,12 +2345,6 @@ h3 {
   --theme-primary: #f1c361;
   --theme-primary-ink: #352b17;
   --theme-panel-ink: #303b2d;
-  --glass-scene-top: #faf8ee;
-  --glass-scene-middle: #e1e6db;
-  --glass-scene-bottom: #f4f1e5;
-  --glass-scene-cool: #a9b8aa;
-  --glass-scene-warm: #d4bb84;
-  --glass-scene-light: #fffef7;
 }
 :root[data-palette] .project-header {
   background: var(--theme-header);

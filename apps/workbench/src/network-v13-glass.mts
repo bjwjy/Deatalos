@@ -1,7 +1,8 @@
 import { element } from './network-dom.mjs';
 // View-only optical material. The shared scene is visible through glass masks only;
 // it never paints the working paper, circuit symbols, controls or engineering values.
-export function setupNetworkGlass(): () => Promise<void> {
+type GlassTheme = 'neutral' | 'silver' | 'oat' | 'coral';
+export function setupNetworkGlass() {
   const workspace = element('workspace');
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   const reducedTransparency = matchMedia('(prefers-reduced-transparency: reduce)');
@@ -10,11 +11,35 @@ export function setupNetworkGlass(): () => Promise<void> {
     element('statusDrawerShell'),
     ...document.querySelectorAll<HTMLElement>('#statusPanels > .status-section'),
   ];
-  // A cached, locally drawn light field gives white paper something to transmit.
+  // A pre-rendered light field gives white paper something to transmit.
   // Its displaced bands are decorative optics, never a warped copy of circuit data.
   const root = document.documentElement;
-  async function refreshPalette() {
-    if (root.hasAttribute('data-plain-theme')) {
+  const materials = element('glassMaterials').dataset;
+  let prepared: { theme: GlassTheme; image: HTMLImageElement; ready: Promise<void> } | null = null;
+
+  function prepare(theme: GlassTheme) {
+    if (theme === 'neutral') {
+      prepared = null;
+      return;
+    }
+    if (prepared?.theme !== theme) {
+      const url = materials[theme];
+      if (!url) throw new Error('Missing glass material: ' + theme);
+      const image = new Image();
+      image.src = url;
+      const entry = { theme, image, ready: image.decode() };
+      prepared = entry;
+      // A failed speculative decode can be retried on confirmation.
+      void entry.ready.catch(() => {
+        if (prepared === entry) prepared = null;
+      });
+    }
+    return prepared;
+  }
+
+  async function refreshPalette(theme: GlassTheme) {
+    const material = prepare(theme);
+    if (!material) {
       root.style.removeProperty('--liquid-field');
       cancelAnimationFrame(frame);
       frame = 0;
@@ -25,32 +50,9 @@ export function setupNetworkGlass(): () => Promise<void> {
       }
       return;
     }
-    const tokens = getComputedStyle(root);
-    const color = (name: string) => tokens.getPropertyValue('--glass-scene-' + name).trim();
-    const scene = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
-    <defs>
-      <linearGradient id="silver" x2=".8" y2="1"><stop stop-color="${color('top')}"/><stop offset=".55" stop-color="${color('middle')}"/><stop offset="1" stop-color="${color('bottom')}"/></linearGradient>
-      <filter id="soft" x="-30%" y="-50%" width="160%" height="200%">
-        <feTurbulence type="fractalNoise" baseFrequency=".004 .008" numOctaves="2" seed="8" result="wave"/>
-        <feDisplacementMap in="SourceGraphic" in2="wave" scale="32" xChannelSelector="R" yChannelSelector="G"/>
-        <feGaussianBlur stdDeviation="18"/>
-      </filter>
-    </defs>
-    <path fill="url(#silver)" d="M0 0h1600v1000H0z"/>
-    <g fill="none" filter="url(#soft)">
-      <path d="M-240 420C80 30 220 690 570 330S1060 80 1230 410S1660 640 1900 220" stroke="${color('cool')}" stroke-opacity=".65" stroke-width="160"/>
-      <path d="M-150 240C230 520 240-60 620 160S1030 700 1450 420S1650 40 1810 50" stroke="${color('light')}" stroke-width="130"/>
-      <path d="M-160 760C230 400 300 950 730 720S1060 380 1380 720S1690 840 1800 540" stroke="${color('warm')}" stroke-opacity=".55" stroke-width="180"/>
-      <path d="M-80 640C280 280 450 960 820 470S1290 230 1710 640" stroke="${color('light')}" stroke-opacity=".9" stroke-width="90"/>
-    </g>
-  </svg>`;
-    const url = 'data:image/svg+xml,' + encodeURIComponent(scene);
-    root.style.setProperty('--liquid-field', 'url("' + url + '")');
+    root.style.setProperty('--liquid-field', 'url("' + material.image.src + '")');
     wake();
-    // A theme snapshot must wait for its new optical image, rather than capture the old field.
-    const image = new Image();
-    image.src = url;
-    return image.decode();
+    await material.ready;
   }
   type Surface = {
     element: HTMLElement;
@@ -189,5 +191,5 @@ export function setupNetworkGlass(): () => Promise<void> {
     } else wake();
   });
   wake();
-  return refreshPalette;
+  return { prepare, refreshPalette };
 }

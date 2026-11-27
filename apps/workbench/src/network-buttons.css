@@ -255,7 +255,7 @@ button.primary:enabled:active {
   color: #075b68;
   box-shadow: inset 3px 0 #087e8b;
 }
-#deleteSelected:enabled:hover {
+#deleteRoute:enabled:hover {
   color: #a82d3a;
   background-image: linear-gradient(90deg, #fce9ec, #fff4f5);
 }

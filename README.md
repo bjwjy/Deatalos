@@ -7,18 +7,18 @@
   <strong>From hydraulic schematics to circuit analysis and engineering reports.</strong>
 </p>
 <p align="center">
-  <a href="https://github.com/bjwjy/Deatalos/releases/download/v1.5.0/Deatalos-1.5.0-x64-Setup.exe"><strong>下载 V1.5 Windows x64 安装包 · Download Windows Installer</strong></a>
-  · <a href="https://github.com/bjwjy/Deatalos/releases/tag/v1.5.0">发布说明 · Release notes</a>
+  <a href="https://github.com/bjwjy/Deatalos/releases/download/v1.5.1/Deatalos-1.5.1-x64-Setup.exe"><strong>下载 V1.5 Windows x64 安装包 · Download Windows Installer</strong></a>
+  · <a href="https://github.com/bjwjy/Deatalos/releases/tag/v1.5.1">发布说明 · Release notes</a>
   · <a href="#quickstart">跑一个示例 · Try an example</a>
   · <a href="#从源码运行">从源码运行</a>
   · <a href="#english">English</a>
 </p>
 
-**当前正式版 1.5.0**提供 Windows x64 离线安装包，约 112 MiB，内含运行环境。下载并运行 `Setup.exe` 即可安装。
+**当前正式版 1.5.1**提供 Windows x64 离线安装包，约 112 MiB，内含运行环境。下载并运行 `Setup.exe` 即可安装。
 
-本版将 MCP 绘图候选上限从 30 条提高到 120 条，并增加多回路引导和端口接线核对。[查看更新与 MCP 迁移说明](docs/releases/1.5.0.md)。
+本版增加可配置鼠标笔势、连续裁剪和自动低压续算，优化文件打开方式、AI 开关和星球换肤。[查看更新说明](docs/releases/1.5.1.md)。
 
-**Deatalos 1.5.0** is available as an offline Windows x64 installer (about 112 MiB). Download and run `Setup.exe` to install. MCP drawing proposals now support 120 commands and identify missing port connections.
+**Deatalos 1.5.1** is available as an offline Windows x64 installer (about 112 MiB). Download and run `Setup.exe` to install. This update adds configurable mouse gestures, continuous pipe trimming, automatic low-pressure continuation, and faster theme switching.
 
 Deatalos 把原理图绘制、油路诊断、瞬态仿真、工况计算和工程出图放在同一个 Windows 工作台。它面向液压教学、回路设计和工程初算，适合从泵、阀、缸和马达搭起回路，再用曲线和计算结果检查设计。
 
@@ -56,7 +56,7 @@ Deatalos 把原理图绘制、油路诊断、瞬态仿真、工况计算和工�
 | 基础与多工况计算 | 从设计参数估算流量、压力和功率。对多个执行器可按工况选择参与对象并比较候选方案，输出计算依据和选型任务书。 |
 | 出图与文档 | 原理图可查看整张图纸或放大到回路，编辑标题栏、纸张方向及装订边。默认可导出 PDF、PNG、JPG，SVG 可在设置中启用。另可导出曲线图、CSV 和 Word 计算书。 |
 | 工程与工作区 | 支持打开、保存、另存和恢复副本。常用显示项、元件库模式、四套配色及导出默认值可在工作区调整。 |
-| 本机 AI 接入 | 使用 hydraulic MCP 提交最多 120 条编辑命令，预览可定位漏接端口。用户在工作台确认候选，仿真控制单独授权。 |
+| 本机 AI 接入 | 使用 hydraulic MCP 提交最多 120 条编辑命令，预览可定位漏接端口。用户在工作台确认候选。工具栏开关控制本次 AI 接入和仿真权限，设置可调整启动默认值。 |
 
 ## 从源码运行
 

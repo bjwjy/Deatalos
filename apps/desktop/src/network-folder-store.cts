@@ -1,4 +1,4 @@
-import { mkdir, lstat, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { atomicWrite, boundedRead, digest, FileFailure, fingerprint, type AtomicHooks } from './atomic-file.cjs';
@@ -76,10 +76,6 @@ export async function createFolder(
     await mkdir(proposed);
     root = proposed;
   } else root = await createNewOutputDirectory(proposed, current, ['.hydproj']);
-  const { folderReadme, folderAgentGuide } = await import('@hyd/project-io');
-  await writeFile(path.join(root, 'AI.md'), folderReadme, { flag: 'wx' });
-  const docs = await child(root, ['docs'], true);
-  await writeFile(path.join(docs, 'AI接入.md'), folderAgentGuide, { flag: 'wx' });
   await child(root, ['data'], true);
   for (const name of Object.values(exportCategoryNames)) await child(root, [exportRootName, name], true);
   return path.join(root, '工程.hydproj');
